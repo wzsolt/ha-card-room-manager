@@ -1,0 +1,67 @@
+name: Room Manager Card
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright-core install --with-deps chromium
+      - run: npm run test:browser
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Publish the release module
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          version="v$(node -p "require('./package.json').version")"
+          test "$GITHUB_REF_NAME" = "$version"
+          filename=$(node -p "require('./hacs.json').filename")
+          if gh release view "$version" --json assets > release-assets.json; then
+            if ! jq -e --arg filename "$filename" 'any(.assets[]; .name == $filename)' release-assets.json > /dev/null; then
+              gh release upload "$version" "dist/$filename"
+            fi
+          else
+            gh release create "$version" "dist/$filename" --verify-tag --generate-notes
+          fi
+
+  validate-hacs:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: plugin
+          comment: "false"
+          ignore: images
