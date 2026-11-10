@@ -28,46 +28,40 @@ function setOptions(select, options, selected) {
 }
 
 class EntityPicker {
-  constructor(text, label, placeholder, onChange, action) {
-    this.text = text;
-    this.placeholder = placeholder;
-    this.options = [];
-    this.filter = element("input");
-    this.filter.type = "search";
-    this.filter.placeholder = text.search;
-    this.filter.setAttribute("aria-label", `${label} · ${text.search}`);
-    this.select = element("select");
-    this.select.setAttribute("aria-label", label);
-    const field = element("div", "pick", this.filter, this.select);
+  constructor(label, placeholder, onChange, action) {
+    this.allowed = new Set();
+    this.picker = element("ha-entity-picker");
+    this.picker.label = label;
+    this.picker.placeholder = placeholder;
+    this.picker.showEntityId = true;
     if (action) {
       this.action = button(null, () => {
-        const id = this.select.value;
-        if (!id) return;
-        this.filter.value = "";
-        this.select.value = "";
+        const id = this.picker.value;
+        if (!this.allowed.has(id)) return;
+        this.picker.value = undefined;
         onChange(id);
       }, action);
+      this.action.disabled = true;
     }
-    this.node = element("div", "field-row", field, ...(this.action ? [this.action] : []));
-    this.filter.addEventListener("input", () => this.update(this.options, this.select.value));
-    this.select.addEventListener("change", () => {
-      if (this.action) this.action.disabled = !this.select.value;
-      else onChange(this.select.value);
+    this.node = this.action ? element("div", "field-row", this.picker, this.action) : this.picker;
+    this.picker.addEventListener("value-changed", (event) => {
+      event.stopPropagation();
+      const id = event.detail.value;
+      if (this.action) this.action.disabled = !this.allowed.has(id);
+      else if (!id || this.allowed.has(id)) onChange(id);
     });
   }
 
-  update(options, selected = this.select.value) {
-    this.options = options;
-    const query = this.filter.value.trim().toLocaleLowerCase();
-    const matches = options.filter(([id, label]) => !query
-      || id === selected || label.toLocaleLowerCase().includes(query));
-    if (selected && !matches.some(([id]) => id === selected)) {
-      if (this.action) selected = "";
-      else matches.unshift([selected, selected]);
+  update(hass, ids, selected = this.action ? this.picker.value : undefined) {
+    this.picker.hass = hass;
+    const previous = this.picker.includeEntities;
+    if (previous?.length !== ids.length || ids.some((id, index) => id !== previous[index])) {
+      this.picker.includeEntities = ids;
+      this.allowed = new Set(ids);
     }
-    const placeholder = query && !matches.length && this.action ? this.text.noMatches : this.placeholder;
-    setOptions(this.select, [["", placeholder], ...matches], selected);
-    if (this.action) this.action.disabled = !this.select.value;
+    if (this.action && !this.allowed.has(selected)) selected = undefined;
+    if (this.picker.value !== selected) this.picker.value = selected;
+    if (this.action) this.action.disabled = !selected;
   }
 }
 
@@ -115,18 +109,21 @@ export class RoomManagerEditor extends HTMLElement {
     this._icon.input.placeholder = "mdi:sofa-outline";
 
     this._measurements = Object.fromEntries(MEASUREMENTS.map((kind) => {
-      const pick = new EntityPicker(text, text[kind], text.defaultSensor,
+      const pick = new EntityPicker(text[kind], text.defaultSensor,
         (id) => this._setField(`${kind}_entity`, id));
-      const title = element("span", "field-title", text[kind]);
-      return [kind, { pick, node: element("div", "panel", title, pick.node) }];
+      return [kind, pick];
     }));
     this._groups = Object.fromEntries(GROUPS.map((group) => {
-      const pick = new EntityPicker(text, text[group], text.chooseEntity,
+      const pick = new EntityPicker(text[group], text.chooseEntity,
         (id) => this._add(group, id), text.add);
       const entries = element("div", "entries");
-      return [group, { pick, entries, node: panel(text[group], pick.node, entries) }];
+      const columns = element("select");
+      columns.setAttribute("aria-label", `${text[group]} · ${text.columns}`);
+      columns.addEventListener("change", () => this._setColumns(group, columns.value));
+      const field = element("label", null, element("span", null, text.columns), columns);
+      return [group, { pick, entries, columns, node: panel(text[group], field, pick.node, entries) }];
     }));
-    const exclude = new EntityPicker(text, text.exclusions, text.chooseEntity, (id) => {
+    const exclude = new EntityPicker(text.exclusions, text.chooseEntity, (id) => {
       this._setList("exclude", [...(this._config.exclude ?? []), id]);
     }, text.exclude);
     this._exclusions = { pick: exclude, entries: element("div", "entries") };
@@ -158,15 +155,15 @@ export class RoomManagerEditor extends HTMLElement {
     this._syncInput(this._icon.input, config.icon);
 
     const states = Object.keys(hass.states ?? {}).filter((id) => !hass.entities?.[id]?.disabled_by);
-    const option = (id) => [id, `${entityName(hass, id)} · ${id}`];
     const exclude = new Set(config.exclude);
     const allIncluded = new Set(GROUPS.flatMap((group) => normalize(config.include?.[group] ?? []))
       .map((entry) => entry.entity));
 
     for (const kind of MEASUREMENTS) {
-      const options = states.filter((id) => id.startsWith("sensor.")
-        && hass.states[id].attributes?.device_class === kind).map(option).sort(sort);
-      this._measurements[kind].pick.update(options, config[`${kind}_entity`] ?? "");
+      const selected = config[`${kind}_entity`];
+      const ids = states.filter((id) => id === selected || (
+        id.startsWith("sensor.") && hass.states[id].attributes?.device_class === kind));
+      this._measurements[kind].update(hass, ids, selected);
     }
     const overrideRows = [];
     const retained = new Set();
@@ -174,7 +171,9 @@ export class RoomManagerEditor extends HTMLElement {
       const entries = normalize(config.include?.[group] ?? []);
       const ids = new Set(entries.map((entry) => entry.entity));
       const view = this._groups[group];
-      view.pick.update(states.filter((id) => acceptsEntity(group, id) && !ids.has(id)).map(option).sort(sort));
+      view.pick.update(hass, states.filter((id) => acceptsEntity(group, id) && !ids.has(id)));
+      setOptions(view.columns, [["", text.automatic], ...["1", "2", "3", "4"].map((count) => [count, count])],
+        String(config.columns?.[group] ?? ""));
       const rows = [];
       for (const id of ids) {
         const key = `${group}:${id}`;
@@ -193,7 +192,7 @@ export class RoomManagerEditor extends HTMLElement {
     }
     orderChildren(this._overrides, overrideRows);
     const automatic = [...discoverRoom(hass, config.area).keys()];
-    this._exclusions.pick.update(automatic.filter((id) => !exclude.has(id) && !allIncluded.has(id)).map(option).sort(sort));
+    this._exclusions.pick.update(hass, automatic.filter((id) => !exclude.has(id) && !allIncluded.has(id)));
     orderChildren(this._exclusions.entries, [...exclude].map((id) => {
       const key = `exclude:${id}`;
       retained.add(key);
@@ -241,6 +240,13 @@ export class RoomManagerEditor extends HTMLElement {
 
   _setList(key, entries) {
     this._setField(key, entries.length ? entries : undefined);
+  }
+
+  _setColumns(group, value) {
+    const columns = { ...this._config.columns };
+    if (value) columns[group] = Number(value);
+    else delete columns[group];
+    this._setField("columns", Object.keys(columns).length ? columns : undefined);
   }
 
   _add(group, id) {

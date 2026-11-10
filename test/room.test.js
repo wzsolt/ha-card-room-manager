@@ -44,7 +44,8 @@ test("manual assignment overrides automatic grouping and exclusion without dupli
   const socket = room.groups.lights.find((item) => item.entity === "switch.socket");
   assert.equal(socket.name, "Dugaljról működő lámpa");
   assert.equal(socket.icon, "mdi:lamp");
-  assert.deepEqual(new Set(room.lightsOn), new Set(["light.ceiling", "switch.socket", "switch.kitchen_lamp"]));
+  assert.deepEqual(new Set(room.active.lights), new Set(["light.ceiling", "switch.socket", "switch.kitchen_lamp"]));
+  assert.deepEqual(room.active.switches, []);
   assert.deepEqual(room.totals.lights, { on: 3, unavailable: 3 });
   assert.deepEqual(room.groups.switches.map((item) => item.entity), ["switch.misc"]);
   assert.equal(room.groups.presence.length, 3);
@@ -53,15 +54,18 @@ test("manual assignment overrides automatic grouping and exclusion without dupli
 test("uses only configured climate sources and preserves their display units", () => {
   const hass = fixture();
   hass.formatEntityState = (state) => state.state.replace(".", ",") + " " + state.attributes.unit_of_measurement;
-  assert.equal(buildRoom(hass, { area: "nappali" }).temperature, "22,5 °C");
-  assert.equal(buildRoom(hass, { area: "nappali" }).humidity, "48 %");
+  assert.equal(buildRoom(hass, { area: "nappali" }).measurements.temperature.display, "22,5 °C");
+  assert.equal(buildRoom(hass, { area: "nappali" }).measurements.humidity.display, "48 %");
   const config = { area: "nappali", temperature_entity: "sensor.kitchen_temperature" };
-  assert.equal(buildRoom(hass, config).temperature, "71 °F");
+  assert.deepEqual(buildRoom(hass, config).measurements.temperature, {
+    id: "sensor.kitchen_temperature", unit: "°F", value: 71, display: "71 °F",
+  });
   hass.states["sensor.kitchen_temperature"].state = "unavailable";
-  assert.equal(buildRoom(hass, config).temperature, undefined);
+  assert.equal(buildRoom(hass, config).measurements.temperature.display, undefined);
+  assert.equal(buildRoom(hass, config).measurements.temperature.id, "sensor.kitchen_temperature");
   hass.states["sensor.room_humidity"].state = "0";
-  assert.equal(buildRoom(hass, config).humidity, "0 %");
-  assert.equal(buildRoom(hass, { area: "konyha" }).temperature, undefined);
+  assert.equal(buildRoom(hass, config).measurements.humidity.display, "0 %");
+  assert.equal(buildRoom(hass, { area: "konyha" }).measurements.temperature.id, undefined);
 });
 
 test("validates YAML-compatible config and accepts empty picker config", () => {
@@ -70,6 +74,9 @@ test("validates YAML-compatible config and accepts empty picker config", () => {
   assert.throws(() => validateConfig({ exclude: "light.ceiling" }), /exclude/);
   assert.throws(() => validateConfig({ include: { switches: ["light.ceiling"] } }), /switches/);
   assert.throws(() => validateConfig({ humidity_entity: "binary_sensor.damp" }), /humidity_entity/);
+  assert.doesNotThrow(() => validateConfig({ columns: { lights: 1, switches: 2, presence: 3, openings: 4 } }));
+  assert.throws(() => validateConfig({ columns: { openings: 5 } }), /columns/);
+  assert.throws(() => validateConfig({ columns: { presence: "3" } }), /columns/);
   const { states } = fixture();
   assert.equal(supportsBrightness("light.ceiling", states["light.ceiling"]), true);
   assert.equal(supportsBrightness("light.reading", states["light.reading"]), false);

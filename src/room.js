@@ -1,5 +1,6 @@
 export const CARD_TYPE = "ha-room-manager-card";
 export const GROUPS = ["lights", "switches", "presence", "openings"];
+export const CONTROL_GROUPS = ["lights", "switches"];
 export const MEASUREMENTS = ["temperature", "humidity"];
 
 const presenceClasses = new Set(["occupancy", "presence", "motion"]);
@@ -45,6 +46,11 @@ export function validateConfig(config) {
   }
   if (config.exclude !== undefined && !(Array.isArray(config.exclude) && config.exclude.every(entityId))) {
     throw new Error("exclude must be a list of entity IDs.");
+  }
+  if (config.columns !== undefined && (!isObject(config.columns) ||
+      Object.entries(config.columns).some(([group, value]) =>
+        !GROUPS.includes(group) || !Number.isInteger(value) || value < 1 || value > 4))) {
+    throw new Error("columns must specify a column count from 1 to 4 for each configured section.");
   }
   if (config.include === undefined) return;
   if (!isObject(config.include)) throw new Error("include must be an object.");
@@ -131,13 +137,20 @@ export function discoverRoom(hass, areaId) {
   return found;
 }
 
-export function measurement(hass, config, area, kind) {
+export function numberFromState(value) {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function measurement(hass, config, area, kind) {
   const id = config[`${kind}_entity`] ?? area[`${kind}_entity_id`];
-  const state = id && hass.states?.[id];
-  if (!state || disabled(hass.entities?.[id])
-      || state.state.trim() === "" || !Number.isFinite(Number(state.state))) return undefined;
-  const value = hass.formatEntityState?.(state);
-  return value ?? [state.state, state.attributes?.unit_of_measurement].filter(Boolean).join(" ");
+  const state = id && !disabled(hass.entities?.[id]) ? hass.states?.[id] : undefined;
+  const value = numberFromState(state?.state);
+  const unit = state?.attributes?.unit_of_measurement;
+  const display = value === undefined ? undefined : hass.formatEntityState?.(state)
+    ?? [state.state, unit].filter(Boolean).join(" ");
+  return { id, unit, value, display };
 }
 
 export function buildRoom(hass, config) {
@@ -179,8 +192,11 @@ export function buildRoom(hass, config) {
     area,
     groups,
     totals,
-    lightsOn: groups.lights.filter((item) => item.state?.state === "on").map((item) => item.entity),
-    temperature: measurement(hass, config, area, "temperature"),
-    humidity: measurement(hass, config, area, "humidity"),
+    active: Object.fromEntries(CONTROL_GROUPS.map((group) => [
+      group, groups[group].filter((item) => item.state?.state === "on").map((item) => item.entity),
+    ])),
+    measurements: Object.fromEntries(MEASUREMENTS.map((kind) => [
+      kind, measurement(hass, config, area, kind),
+    ])),
   };
 }

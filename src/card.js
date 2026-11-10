@@ -1,12 +1,12 @@
-import { CARD_TYPE, GROUPS, buildRoom, isAvailable, supportsBrightness, validateConfig } from "./room.js";
+import { CARD_TYPE, CONTROL_GROUPS, GROUPS, MEASUREMENTS, buildRoom, isAvailable, supportsBrightness, validateConfig } from "./room.js";
 import { applyThemeMode, button, element, icon, mount, orderChildren } from "./dom.js";
 import { cardStyles } from "./styles.js";
 import { labels } from "./text.js";
 import { RoomManagerEditor } from "./editor.js";
+import { TemperatureRange } from "./temperature.js";
 
 const glyphs = {
-  sensors: "mdi:shield-home-outline",
-  presence: "mdi:motion-sensor",
+  presence: "mdi:run",
   openings: "mdi:door-closed",
   lights: "mdi:lightbulb-group-outline",
   switches: "mdi:power-socket-eu",
@@ -44,11 +44,10 @@ function tileIcon(item) {
   if (item.icon) return item.icon;
   if (item.group === "lights") return item.state?.state === "on" ? "mdi:lightbulb-on" : "mdi:lightbulb-outline";
   if (item.group !== "openings") return glyphs[item.group];
-  const on = item.state?.state === "on";
   switch (item.state?.attributes?.device_class) {
-    case "window": return on ? "mdi:window-open" : "mdi:window-closed";
-    case "garage_door": return on ? "mdi:garage-open" : "mdi:garage";
-    default: return on ? "mdi:door-open" : "mdi:door-closed";
+    case "window": return "mdi:window-closed-variant";
+    case "garage_door": return "mdi:garage";
+    default: return glyphs.openings;
   }
 }
 
@@ -65,7 +64,12 @@ class RoomManagerCard extends HTMLElement {
     return {};
   }
 
-  static getConfigElement() {
+  static async getConfigElement() {
+    if (!customElements.get("ha-entity-picker")) {
+      // The built-in Entities editor loads the shared entity picker on demand.
+      await window.loadCardHelpers?.();
+      await customElements.get("hui-entities-card")?.getConfigElement();
+    }
     return document.createElement(`${CARD_TYPE}-editor`);
   }
 
@@ -74,6 +78,7 @@ class RoomManagerCard extends HTMLElement {
     this.attachShadow({ mode: "open" });
     this._tiles = new Map();
     this._pending = new Set();
+    this._temperatureRange = new TemperatureRange(() => this._queueRender());
   }
 
   setConfig(config) {
@@ -93,8 +98,11 @@ class RoomManagerCard extends HTMLElement {
   }
 
   getCardSize() {
-    const tiles = this._room ? Object.values(this._room.groups).flat().length : 0;
-    return 2 + Math.ceil(tiles / 2);
+    if (!this._room) return 2;
+    return 2 + GROUPS.reduce((rows, group) => {
+      const count = this._room.groups[group].length;
+      return count ? rows + 1 + Math.ceil(count / (this._config?.columns?.[group] ?? 2)) : rows;
+    }, 0);
   }
 
   getGridOptions() {
@@ -114,32 +122,21 @@ class RoomManagerCard extends HTMLElement {
     this._heading = element("h2");
     this._areaGlyph = glyph("mdi:home-outline");
     this._badges = {
-      temperature: chip("mdi:thermometer"),
-      humidity: chip("mdi:water-percent"),
-      presence: chip("mdi:account"),
-      openings: chip("mdi:door-open"),
-      lights: chip("mdi:lightbulb", () => this._allOff()),
+      temperature: chip("mdi:thermometer", () => this._showHistory("temperature")),
+      range: chip("mdi:restore", () => this._resetRange()),
+      humidity: chip("mdi:water-percent", () => this._showHistory("humidity")),
+      presence: chip(glyphs.presence),
+      openings: chip(glyphs.openings),
+      lights: chip("mdi:lightbulb", () => this._allOff("lights")),
       switches: chip("mdi:power-socket-eu"),
     };
 
-    this._groupViews = Object.fromEntries(GROUPS.map((group) => {
+    this._sections = Object.fromEntries(GROUPS.map((group) => {
       const grid = element("div", "grid");
-      if (group === "lights" || group === "switches") return [group, { grid }];
-      const title = element("h4");
-      return [group, { grid, title, node: element("div", "sensor-group", title, grid) }];
+      const action = CONTROL_GROUPS.includes(group) ? () => this._allOff(group) : undefined;
+      const badge = chip(action ? "mdi:power" : glyphs[group], action);
+      return [group, { ...section(group, grid, badge), grid, badge }];
     }));
-    this._sectionBadges = {
-      presence: chip("mdi:account"),
-      openings: chip("mdi:door-open"),
-      lights: chip("mdi:lightbulb"),
-      switches: chip("mdi:power"),
-    };
-    this._sections = {
-      sensors: section("sensors", element("div", null, this._groupViews.presence.node, this._groupViews.openings.node),
-        this._sectionBadges.presence, this._sectionBadges.openings),
-      lights: section("lights", this._groupViews.lights.grid, this._sectionBadges.lights),
-      switches: section("switches", this._groupViews.switches.grid, this._sectionBadges.switches),
-    };
     this._sectionList = element("div", "sections", ...Object.values(this._sections).map(({ node }) => node));
     this._summary = element("div", "summary", ...Object.values(this._badges).map(({ node }) => node));
     this._message = element("p", "notice");
@@ -172,28 +169,11 @@ class RoomManagerCard extends HTMLElement {
       return;
     }
 
-    for (const key of ["temperature", "humidity"]) {
-      const value = room[key];
-      updateChip(this._badges[key], value ?? "—", "info", `${text[key]} · ${value ?? text.noReading}`);
-    }
-    for (const group of GROUPS) {
-      this._updateGroup(group, room, text);
-    }
-    this._badges.lights.node.disabled = !room.lightsOn.length || room.lightsOn.some((id) => this._pending.has(id));
-    this._badges.lights.node.title = `${text.allOff} · ${this._badges.lights.node.title}`;
-    this._badges.lights.node.setAttribute("aria-label", this._badges.lights.node.title);
-
-    const visibleSections = {
-      sensors: room.groups.presence.length || room.groups.openings.length,
-      lights: room.groups.lights.length,
-      switches: room.groups.switches.length,
-    };
+    this._updateMeasurements(room, text);
     let first = true;
-    for (const [key, section] of Object.entries(this._sections)) {
-      section.node.hidden = !visibleSections[key];
-      section.node.toggleAttribute("data-first", first && !section.node.hidden);
-      if (!section.node.hidden) first = false;
-      section.title.textContent = text[key];
+    for (const group of GROUPS) {
+      this._updateGroup(group, room, text, first);
+      if (room.groups[group].length) first = false;
     }
     this._sectionList.hidden = first;
     this._message.hidden = !first;
@@ -205,25 +185,50 @@ class RoomManagerCard extends HTMLElement {
     }
   }
 
-  _updateGroup(group, room, text) {
-    const items = room.groups[group];
-    const view = this._groupViews[group];
-    if (view.node) {
-      view.title.textContent = text[group];
-      view.node.hidden = !items.length;
+  _updateMeasurements(room, text) {
+    for (const kind of MEASUREMENTS) {
+      const { id, display } = room.measurements[kind];
+      const badge = this._badges[kind];
+      updateChip(badge, display ?? "—", "info", `${text[kind]} · ${display ?? text.noReading}`);
+      badge.node.disabled = !id;
     }
+    const range = this._temperatureRange.update(this._hass, room.area.area_id, room.measurements.temperature);
+    const formatter = new Intl.NumberFormat(this._hass.locale?.language || this._hass.language, {
+      maximumFractionDigits: 2,
+    });
+    const display = range ? text.minMax(formatter.format(range.min), formatter.format(range.max), range.unit ?? "") : "";
+    updateChip(this._badges.range, display, "quiet", `${text.resetRange} · ${display}`, Boolean(range));
+  }
+
+  _updateGroup(group, room, text, first) {
+    const items = room.groups[group];
+    const view = this._sections[group];
+    const columns = this._config?.columns?.[group];
+    view.title.textContent = text[group];
+    view.node.hidden = !items.length;
+    view.node.toggleAttribute("data-first", first && Boolean(items.length));
+    view.grid.toggleAttribute("data-columns", columns !== undefined);
+    view.grid.style.setProperty("--room-columns", columns ?? 2);
+
     const { on, unavailable } = room.totals[group];
+    const controllable = CONTROL_GROUPS.includes(group);
     let value = group === "openings" ? text.countOpen(on) : text.countOn(on);
-    let tone = on ? (group === "switches" ? "info" : "warn") : "quiet";
+    const tone = on ? (group === "switches" ? "info" : "warn")
+      : (controllable || unavailable ? "quiet" : "good");
     if (group === "presence") {
       value = on ? text.detected : unavailable ? text.uncertain : text.clear;
-      tone = on ? "info" : "quiet";
     }
     const status = unavailable ? `${value} · ${text.countUnavailable(unavailable)}` : value;
     const label = `${text[group]} · ${status}`;
     const display = unavailable && group !== "presence" ? `${value} · ?` : value;
-    updateChip(this._badges[group], display, tone, label, Boolean(items.length));
-    updateChip(this._sectionBadges[group], display, tone, label, Boolean(items.length));
+    const actionLabel = controllable ? `${text.allOff[group]} · ${label}` : label;
+    updateChip(this._badges[group], display, tone, group === "lights" ? actionLabel : label, Boolean(items.length));
+    updateChip(view.badge, display, tone, actionLabel, controllable ? on > 0 : Boolean(items.length));
+    if (controllable) {
+      const disabled = !on || room.active[group].some((id) => this._pending.has(id));
+      view.badge.node.disabled = disabled;
+      if (group === "lights") this._badges.lights.node.disabled = disabled;
+    }
     orderChildren(view.grid, items.map((item) => this._updateTile(item, text)));
   }
 
@@ -263,9 +268,10 @@ class RoomManagerCard extends HTMLElement {
     const view = this._tiles.get(item.entity) ?? this._newTile(item.entity);
     const on = item.state?.state === "on";
     const available = isAvailable(item.state);
-    const controllable = item.group === "lights" || item.group === "switches";
+    const controllable = CONTROL_GROUPS.includes(item.group);
     const pending = this._pending.has(item.entity);
     view.node.dataset.group = item.group;
+    view.node.toggleAttribute("data-sensor", !controllable);
     view.node.toggleAttribute("data-active", on);
     view.node.toggleAttribute("data-unavailable", !available);
     view.symbol.firstChild.setAttribute("icon", tileIcon(item));
@@ -302,9 +308,24 @@ class RoomManagerCard extends HTMLElement {
 
   _moreInfo(id) {
     if (!this._currentItem(id)?.state) return;
+    this._openEntity(id);
+  }
+
+  _openEntity(entityId, view) {
     this.dispatchEvent(new CustomEvent("hass-more-info", {
-      detail: { entityId: id }, bubbles: true, composed: true,
+      detail: view ? { entityId, view } : { entityId }, bubbles: true, composed: true,
     }));
+  }
+
+  _showHistory(kind) {
+    const id = this._room?.measurements[kind].id;
+    if (id) this._openEntity(id, "history");
+  }
+
+  _resetRange() {
+    if (!this._room) return;
+    this._temperatureRange.reset(this._room.measurements.temperature);
+    this._queueRender();
   }
 
   _activate(id) {
@@ -326,9 +347,9 @@ class RoomManagerCard extends HTMLElement {
     this._queueRender();
   }
 
-  _allOff() {
+  _allOff(group) {
     const room = this._hass && this._config && buildRoom(this._hass, this._config);
-    this._service("homeassistant", "turn_off", room?.lightsOn ?? []);
+    this._service("homeassistant", "turn_off", room?.active[group] ?? []);
   }
 
   async _service(domain, service, ids, data = {}) {

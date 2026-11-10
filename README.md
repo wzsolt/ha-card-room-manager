@@ -2,7 +2,7 @@
 
 A Szobakezelő egy kiválasztott Home Assistant-helyiség lámpáit, kapcsolóit, jelenlét- és nyitásérzékelőit gyűjti egy Lovelace-kártyára. A fejléc mutatja a jelenlétet, a nyitott ajtók és ablakok, illetve a bekapcsolt lámpák és kapcsolók számát, valamint a kijelölt hőmérséklet- és páratartalom-szenzor értékét.
 
-A lámpák és kapcsolók csempéi kapcsolnak. A dimmelhető lámpák csempéjén külön csúszka állítja a fényerőt. A fejléc lámpajelvénye a kártyán szereplő, bekapcsolt lámpákat kapcsolja le, a kézzel hozzáadottakat is beleértve.
+A lámpák és kapcsolók csempéi kapcsolnak. A dimmelhető lámpák csempéjén külön csúszka állítja a fényerőt. A Lámpák és a Kapcsolók szekció számlálója akkor jelenik meg, ha van bekapcsolt eszköz. Koppintással lekapcsolhatod vele a szekció összes bekapcsolt eszközét. A fejléc lámpajelvénye ugyanezt a lámpaműveletet végzi.
 
 ## Telepítés
 
@@ -18,9 +18,11 @@ Másold a kiadásból letöltött vagy az `npm run build` paranccsal elkészíte
 
 ## Beállítások
 
-Az automatikus lista először az entitás saját helyiségét nézi, majd az eszközét. A szerkesztőből szekciónként hozzáadhatsz entitásokat, akár másik helyiségből is. A kézi besorolás felülírja az automatikusat. Az `exclude` az automatikus listára hat. A Haladó részben a kézzel felvett csempék neve és ikonja megadható.
+Az automatikus lista először az entitás saját helyiségét nézi, majd az eszközét. A szerkesztőben a Home Assistant kereshető entitásválasztójával adhatsz hozzá entitásokat, akár másik helyiségből is. A kézi besorolás felülírja az automatikusat. Az `exclude` az automatikus listára hat. A Haladó részben a kézzel felvett csempék neve és ikonja megadható. A Lámpák, Kapcsolók, Jelenlét és Ajtók és ablakok szekció külön-külön 1–4 oszlopra állítható. Automatikus módban szélesebb kártyán két, keskenyen egy oszlop jelenik meg.
 
 A fejléc a kártyán kiválasztott hőmérséklet- és páratartalom-szenzort használja. Ha a mező üres, az adott helyiség **Kapcsolódó szenzorok** beállítása adja a forrást. Kijelölés vagy érvényes mérés hiányában `—` jelenik meg.
+
+A hőmérséklet- és páratartalom-jelvény az entitás Home Assistant-előzményeit nyitja meg. A hőmérséklet min/max jelvénye az első mérés, illetve az utolsó nullázás óta mutatja a szélsőértékeket. Koppints a min/max jelvényre a nullázáshoz. A tartomány az adott böngészőben mentődik, és a kártya újranyitáskor a Recorder rendelkezésre álló méréseivel egészíti ki.
 
 ```yaml
 type: custom:ha-room-manager-card
@@ -29,6 +31,11 @@ title: Nappali
 icon: mdi:sofa
 temperature_entity: sensor.nappali_homerseklet
 humidity_entity: sensor.nappali_paratartalom
+columns:
+  lights: 2
+  switches: 2
+  presence: 3
+  openings: 3
 include:
   lights:
     - entity: switch.allolampa

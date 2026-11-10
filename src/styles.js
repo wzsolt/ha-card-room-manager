@@ -23,10 +23,9 @@ ha-card {
 .room { padding: 14px; }
 .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 .room-title, .section-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
-h2, h3, h4 { margin: 0; overflow-wrap: anywhere; }
+h2, h3 { margin: 0; overflow-wrap: anywhere; }
 h2 { font-size: 1.2rem; line-height: 1.25; font-weight: 650; }
 h3 { font-size: 1rem; font-weight: 650; }
-h4 { font-size: .81rem; font-weight: 600; color: var(--room-muted); margin: 4px 0 7px; }
 .glyph {
   display: inline-grid;
   flex: none;
@@ -44,7 +43,7 @@ h4 { font-size: .81rem; font-weight: 600; color: var(--room-muted); margin: 4px 
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  min-height: 23px;
+  min-height: 26px;
   padding: 1px 8px;
   border-radius: 999px;
   border: 1px solid transparent;
@@ -57,7 +56,7 @@ h4 { font-size: .81rem; font-weight: 600; color: var(--room-muted); margin: 4px 
   line-height: 1.3;
 }
 .chip ha-icon { --mdc-icon-size: 15px; }
-button.chip { min-height: 32px; cursor: pointer; }
+button.chip { cursor: pointer; }
 button.chip:disabled { cursor: default; }
 button.chip:not(:disabled):hover { border-color: currentColor; }
 .chip.quiet { --accent: var(--room-muted); }
@@ -68,11 +67,12 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
 .section { padding: 12px; border-top: 1px solid var(--room-line); }
 .section:first-of-type, .section[data-first] { border-top: 0; }
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
-.sensors, .lights { --accent: var(--room-amber); }
+.lights { --accent: var(--room-amber); }
 .switches { --accent: var(--room-blue); }
-.sensor-group + .sensor-group { margin-top: 10px; }
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.presence, .openings { --accent: var(--room-green); }
+.grid { display: grid; grid-template-columns: repeat(var(--room-columns, 2), minmax(0, 1fr)); gap: 7px; }
 .tile {
+  container-type: inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -87,10 +87,9 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 .tile[data-unavailable] .tile-state { color: var(--room-muted); }
-.tile[data-group="presence"] { --accent: var(--room-blue); }
-.tile[data-group="openings"]:not([data-active]):not([data-unavailable]) { --accent: var(--room-green); }
+.tile[data-sensor][data-active] { --accent: var(--room-amber); }
 .tile:not([data-active]) .glyph { --accent: var(--room-muted); }
-.tile[data-group="openings"]:not([data-active]):not([data-unavailable]) .glyph { --accent: var(--room-green); }
+.tile[data-sensor]:not([data-unavailable]) .glyph { --accent: inherit; }
 .tile-main, .details {
   color: inherit;
   border: 0;
@@ -102,10 +101,13 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
 .tile-main:disabled { cursor: default; }
 .tile-main .glyph { width: 30px; height: 30px; }
 .tile-main .glyph ha-icon { --mdc-icon-size: 17px; }
+.tile[data-sensor] .tile-main { min-height: 46px; }
+.tile[data-sensor] .tile-main .glyph { background: transparent; width: 23px; }
 .tile-text { display: grid; min-width: 0; }
 .tile-name { font-size: .88rem; font-weight: 600; overflow-wrap: anywhere; }
 .tile-state { font-size: .78rem; color: var(--room-muted); overflow-wrap: anywhere; }
 .tile[data-active] .tile-state { color: var(--accent); }
+.tile[data-sensor]:not([data-unavailable]) .tile-state { color: var(--accent); }
 .details { align-self: center; width: 32px; min-height: 36px; padding: 0; margin-inline-end: 2px; color: var(--room-muted); }
 .details ha-icon { --mdc-icon-size: 17px; }
 .brightness {
@@ -130,7 +132,15 @@ button:focus-visible, input:focus-visible {
 @container (max-width: 400px) {
   .room { padding: 10px; }
   .section { padding: 9px; }
-  .grid { grid-template-columns: minmax(0, 1fr); }
+  .grid:not([data-columns]) { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 135px) {
+  .tile-main { gap: 4px; padding: 4px; }
+  .tile-main .glyph, .tile[data-sensor] .tile-main .glyph { width: 18px; height: 23px; }
+  .tile-main .glyph ha-icon, .details ha-icon { --mdc-icon-size: 14px; }
+  .tile-name, .tile-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .details { width: 20px; }
+  .brightness { padding-inline: 4px; grid-template-columns: minmax(0, 1fr) auto; }
 }
 `;
 
@@ -140,7 +150,7 @@ export const editorStyles = `
 :host([data-theme-mode="light"]) { color-scheme: light; }
 [hidden] { display: none !important; }
 form { display: grid; gap: 12px; margin: 8px 0; }
-label, .pick { display: grid; gap: 5px; min-width: 0; font-size: .875rem; }
+label { display: grid; gap: 5px; min-width: 0; font-size: .875rem; }
 label span, summary { font-weight: 600; }
 input, select, button {
   min-width: 0;
@@ -164,6 +174,7 @@ summary { cursor: pointer; padding: 3px; }
 .panel, .entries, .overrides { display: grid; gap: 6px; }
 details[open] > .panel { margin-top: 8px; }
 .field-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 5px; }
+ha-entity-picker { min-width: 0; }
 .saved-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px; align-items: center; }
 .saved-name { overflow-wrap: anywhere; font-size: .83rem; }
 .override-row { display: grid; gap: 6px; }
