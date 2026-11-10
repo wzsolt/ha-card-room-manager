@@ -1,16 +1,23 @@
-import { CARD_TYPE, CONTROL_GROUPS, GROUPS, MEASUREMENTS, buildRoom, isAvailable, supportsBrightness, validateConfig } from "./room.js";
+import { CARD_TYPE, CONTROL_GROUPS, GROUPS, MEASUREMENTS, buildRoom, isActive, isAvailable, isCoverAvailable, normalizeConfig, supportsBrightness, validateConfig } from "./room.js";
 import { applyThemeMode, button, element, icon, mount, orderChildren } from "./dom.js";
 import { cardStyles } from "./styles.js";
 import { labels } from "./text.js";
 import { RoomManagerEditor } from "./editor.js";
 import { TemperatureRange } from "./temperature.js";
+import { enableBrightnessDrag } from "./brightness.js";
 
 const glyphs = {
-  presence: "mdi:run",
-  openings: "mdi:door-closed",
+  security: "mdi:shield-home-outline",
+  covers: "mdi:window-shutter",
   lights: "mdi:lightbulb-group-outline",
   switches: "mdi:power-socket-eu",
 };
+
+const coverControls = [
+  { key: "open", feature: 1, icon: "mdi:arrow-up", service: "open_cover" },
+  { key: "stop", feature: 8, icon: "mdi:stop", service: "stop_cover" },
+  { key: "close", feature: 2, icon: "mdi:arrow-down", service: "close_cover" },
+];
 
 function chip(name, action) {
   const value = element("span");
@@ -43,20 +50,41 @@ function section(name, content, ...badges) {
 function tileIcon(item) {
   if (item.icon) return item.icon;
   if (item.group === "lights") return item.state?.state === "on" ? "mdi:lightbulb-on" : "mdi:lightbulb-outline";
-  if (item.group !== "openings") return glyphs[item.group];
-  switch (item.state?.attributes?.device_class) {
+  if (item.group === "covers") return isActive(item) ? "mdi:window-shutter-open" : glyphs.covers;
+  if (item.group !== "security") return glyphs[item.group];
+  if (item.securityType === "presence") return isActive(item) ? "mdi:motion-sensor" : "mdi:motion-sensor-off";
+  switch (item.deviceClass) {
     case "window": return "mdi:window-closed-variant";
     case "garage_door": return "mdi:garage";
-    default: return glyphs.openings;
+    default: return item.securityType === "opening" ? "mdi:door-closed" : glyphs.security;
   }
 }
 
 function tileState(item, text) {
-  if (!isAvailable(item.state)) return item.state?.state === "unknown" ? text.unknown : text.unavailable;
+  const available = item.group === "covers" ? isCoverAvailable : isAvailable;
+  if (!available(item.state)) return item.state?.state === "unknown" ? text.unknown : text.unavailable;
+  if (item.group === "covers") return text[item.state.state];
   const on = item.state.state === "on";
-  if (item.group === "openings") return on ? text.open : text.closed;
-  if (item.group === "presence") return on ? text.active : text.inactive;
+  if (item.securityType === "opening") return on ? text.open : text.closed;
+  if (item.group === "security") return on ? text.active : text.inactive;
   return on ? text.on : text.off;
+}
+
+function securityStatus(items, on, unavailable, text) {
+  const openings = items.filter((item) => item.securityType === "opening");
+  const open = openings.filter(isActive).length;
+  if (!on) return unavailable ? text.unknown : openings.length ? text.allClosed : text.inactive;
+  return [open ? text.countOpen(open) : "", on > open ? text.detected : ""].filter(Boolean).join(" · ");
+}
+
+function canRunCover(item, action) {
+  const state = item.state;
+  if (!isCoverAvailable(state) || !(state.attributes?.supported_features & action.feature)) return false;
+  if (action.key === "stop") return state.state === "opening" || state.state === "closing";
+  if (state.attributes.assumed_state) return true;
+  return action.key === "open" ? !["open", "opening"].includes(state.state)
+    || (state.state === "open" && state.attributes.current_position < 100)
+    : !["closed", "closing"].includes(state.state);
 }
 
 class RoomManagerCard extends HTMLElement {
@@ -65,8 +93,8 @@ class RoomManagerCard extends HTMLElement {
   }
 
   static async getConfigElement() {
-    if (!customElements.get("ha-entity-picker")) {
-      // The built-in Entities editor loads the shared entity picker on demand.
+    if (!customElements.get("ha-form")) {
+      // The built-in Entities editor registers the Lovelace form and its selectors.
       await window.loadCardHelpers?.();
       await customElements.get("hui-entities-card")?.getConfigElement();
     }
@@ -83,7 +111,7 @@ class RoomManagerCard extends HTMLElement {
 
   setConfig(config) {
     validateConfig(config);
-    this._config = config;
+    this._config = normalizeConfig(config);
     this._error = false;
     this._queueRender();
   }
@@ -125,8 +153,7 @@ class RoomManagerCard extends HTMLElement {
       temperature: chip("mdi:thermometer", () => this._showHistory("temperature")),
       range: chip("mdi:restore", () => this._resetRange()),
       humidity: chip("mdi:water-percent", () => this._showHistory("humidity")),
-      presence: chip(glyphs.presence),
-      openings: chip(glyphs.openings),
+      security: chip(glyphs.security),
       lights: chip("mdi:lightbulb", () => this._allOff("lights")),
       switches: chip("mdi:power-socket-eu"),
     };
@@ -189,8 +216,7 @@ class RoomManagerCard extends HTMLElement {
     for (const kind of MEASUREMENTS) {
       const { id, display } = room.measurements[kind];
       const badge = this._badges[kind];
-      updateChip(badge, display ?? "—", "info", `${text[kind]} · ${display ?? text.noReading}`);
-      badge.node.disabled = !id;
+      updateChip(badge, display ?? "—", "info", `${text[kind]} · ${display ?? text.noReading}`, Boolean(id));
     }
     const range = this._temperatureRange.update(this._hass, room.area.area_id, room.measurements.temperature);
     const formatter = new Intl.NumberFormat(this._hass.locale?.language || this._hass.language, {
@@ -212,17 +238,18 @@ class RoomManagerCard extends HTMLElement {
 
     const { on, unavailable } = room.totals[group];
     const controllable = CONTROL_GROUPS.includes(group);
-    let value = group === "openings" ? text.countOpen(on) : text.countOn(on);
+    if (group === "security") view.node.toggleAttribute("data-alert", on > 0);
+    let value = group === "covers" ? text.countOpen(on) : text.countOn(on);
     const tone = on ? (group === "switches" ? "info" : "warn")
       : (controllable || unavailable ? "quiet" : "good");
-    if (group === "presence") {
-      value = on ? text.detected : unavailable ? text.uncertain : text.clear;
-    }
+    if (group === "security") value = securityStatus(items, on, unavailable, text);
     const status = unavailable ? `${value} · ${text.countUnavailable(unavailable)}` : value;
     const label = `${text[group]} · ${status}`;
-    const display = unavailable && group !== "presence" ? `${value} · ?` : value;
+    const display = unavailable && (group !== "security" || on) ? `${value} · ?` : value;
     const actionLabel = controllable ? `${text.allOff[group]} · ${label}` : label;
-    updateChip(this._badges[group], display, tone, group === "lights" ? actionLabel : label, Boolean(items.length));
+    if (this._badges[group]) {
+      updateChip(this._badges[group], display, tone, group === "lights" ? actionLabel : label, Boolean(items.length));
+    }
     updateChip(view.badge, display, tone, actionLabel, controllable ? on > 0 : Boolean(items.length));
     if (controllable) {
       const disabled = !on || room.active[group].some((id) => this._pending.has(id));
@@ -232,51 +259,47 @@ class RoomManagerCard extends HTMLElement {
     orderChildren(view.grid, items.map((item) => this._updateTile(item, text)));
   }
 
-  _newTile(id) {
+  _newTile(item) {
+    const id = item.entity;
     const symbol = glyph("mdi:circle-outline");
     const name = element("span", "tile-name");
     const state = element("span", "tile-state");
     const main = button("tile-main", () => this._activate(id), symbol, element("span", "tile-text", name, state));
     const details = button("details", () => this._moreInfo(id), icon("mdi:information-outline"));
-    const slider = element("input");
-    slider.type = "range";
-    slider.min = "1";
-    slider.max = "100";
-    const percentage = element("output");
-    const brightness = element("div", "brightness", slider, percentage);
-    const node = element("div", "tile", main, details, brightness);
+    const node = element("div", "tile", main, details);
     node.dataset.entity = id;
-    const view = { node, symbol, name, state, main, details, slider, percentage, brightness };
-    slider.addEventListener("input", () => {
-      view.dragging = true;
-      percentage.textContent = `${slider.value}%`;
-    });
-    slider.addEventListener("change", () => {
-      view.dragging = false;
-      this._dim(id, Number(slider.value), view);
-    });
-    slider.addEventListener("pointercancel", () => {
-      view.dragging = false;
-      view.levelKey = undefined;
-      this._queueRender();
-    });
+    const view = { node, symbol, name, state, main, details };
+    if (item.group === "covers") {
+      view.coverButtons = coverControls.map((action) =>
+        button("cover-action", () => this._runCover(id, action), icon(action.icon)));
+      node.append(element("div", "cover-actions", ...view.coverButtons));
+    }
+    if (id.startsWith("light.")) {
+      enableBrightnessDrag(main, view, (level) => {
+        view.preview = level;
+        this._queueRender();
+      }, (level) => this._dim(id, level, view), () => {
+        view.preview = undefined;
+        this._queueRender();
+      });
+    }
     this._tiles.set(id, view);
     return view;
   }
 
   _updateTile(item, text) {
-    const view = this._tiles.get(item.entity) ?? this._newTile(item.entity);
-    const on = item.state?.state === "on";
-    const available = isAvailable(item.state);
+    const view = this._tiles.get(item.entity) ?? this._newTile(item);
+    const on = isActive(item);
+    const cover = item.group === "covers";
+    const available = cover ? isCoverAvailable(item.state) : isAvailable(item.state);
     const controllable = CONTROL_GROUPS.includes(item.group);
     const pending = this._pending.has(item.entity);
     view.node.dataset.group = item.group;
-    view.node.toggleAttribute("data-sensor", !controllable);
+    view.node.toggleAttribute("data-sensor", item.group === "security");
     view.node.toggleAttribute("data-active", on);
     view.node.toggleAttribute("data-unavailable", !available);
     view.symbol.firstChild.setAttribute("icon", tileIcon(item));
     view.name.textContent = item.name;
-    view.state.textContent = tileState(item, text);
     view.main.disabled = controllable ? !available || pending : !item.state;
     if (controllable) view.main.setAttribute("aria-pressed", String(on));
     else view.main.removeAttribute("aria-pressed");
@@ -284,20 +307,32 @@ class RoomManagerCard extends HTMLElement {
     view.details.title = `${item.name} · ${text.moreInfo}`;
     view.details.setAttribute("aria-label", view.details.title);
 
-    const dimmable = item.group === "lights" && supportsBrightness(item.entity, item.state);
-    view.brightness.hidden = !dimmable;
-    view.slider.disabled = !available || pending;
-    view.slider.setAttribute("aria-label", `${item.name} · ${text.brightness}`);
-    if (dimmable) {
+    view.dimmable = this._config?.show_brightness !== false && item.group === "lights"
+      && supportsBrightness(item.entity, item.state);
+    view.node.toggleAttribute("data-dimmable", view.dimmable);
+    if (view.dimmable) {
       const brightness = item.state.attributes.brightness;
-      const levelKey = `${item.state.state}:${brightness}`;
-      if (!view.dragging && view.levelKey !== levelKey) {
-        const level = on && Number.isFinite(brightness) ? Math.round(brightness * 100 / 255) : 0;
-        view.slider.value = String(Math.max(1, level));
-        view.percentage.textContent = on && !Number.isFinite(brightness) ? "—" : `${level}%`;
-        view.levelKey = levelKey;
-      }
+      view.level = on && Number.isFinite(brightness) ? Math.round(brightness * 100 / 255) : 0;
+      view.main.setAttribute("aria-keyshortcuts", "ArrowLeft ArrowRight ArrowUp ArrowDown Home End");
+    } else {
+      view.level = cover && available ? item.state.attributes?.current_position : undefined;
+      view.main.removeAttribute("aria-keyshortcuts");
     }
+    if (view.coverButtons) {
+      for (const [index, action] of coverControls.entries()) {
+        const control = view.coverButtons[index];
+        control.hidden = !(item.state?.attributes?.supported_features & action.feature);
+        control.disabled = pending || !canRunCover(item, action);
+        control.title = `${text.coverActions[action.key]} · ${item.name}`;
+        control.setAttribute("aria-label", control.title);
+      }
+      view.coverButtons[0].parentElement.hidden = view.coverButtons.every((control) => control.hidden);
+    }
+    const level = view.preview ?? view.level;
+    view.node.toggleAttribute("data-level", Number.isFinite(level));
+    view.node.style.setProperty("--level", `${Math.min(100, Math.max(0, level ?? 0))}%`);
+    view.state.textContent = Number.isFinite(level) && (available || view.preview !== undefined)
+      ? `${tileState(item, text)} · ${level}%` : tileState(item, text);
     return view.node;
   }
 
@@ -331,7 +366,7 @@ class RoomManagerCard extends HTMLElement {
   _activate(id) {
     const item = this._currentItem(id);
     if (!item?.state) return;
-    if (item.group === "presence" || item.group === "openings") {
+    if (!CONTROL_GROUPS.includes(item.group)) {
       this._moreInfo(id);
     } else if (isAvailable(item.state)) {
       this._service("homeassistant", "toggle", [id]);
@@ -340,11 +375,19 @@ class RoomManagerCard extends HTMLElement {
 
   async _dim(id, percentage, view) {
     const item = this._currentItem(id);
-    if (item?.group === "lights" && isAvailable(item.state) && supportsBrightness(id, item.state)) {
-      await this._service("light", "turn_on", [id], { brightness_pct: percentage });
+    if (this._config?.show_brightness !== false && item?.group === "lights"
+        && isAvailable(item.state) && supportsBrightness(id, item.state)) {
+      view.preview = percentage;
+      if (percentage === 0) await this._service("light", "turn_off", [id]);
+      else await this._service("light", "turn_on", [id], { brightness_pct: percentage });
     }
-    view.levelKey = undefined;
+    view.preview = undefined;
     this._queueRender();
+  }
+
+  _runCover(id, action) {
+    const item = this._currentItem(id);
+    if (item?.group === "covers" && canRunCover(item, action)) this._service("cover", action.service, [id]);
   }
 
   _allOff(group) {

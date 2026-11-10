@@ -1,8 +1,8 @@
 # Room Manager Card
 
-A Szobakezelő egy kiválasztott Home Assistant-helyiség lámpáit, kapcsolóit, jelenlét- és nyitásérzékelőit gyűjti egy Lovelace-kártyára. A fejléc mutatja a jelenlétet, a nyitott ajtók és ablakok, illetve a bekapcsolt lámpák és kapcsolók számát, valamint a kijelölt hőmérséklet- és páratartalom-szenzor értékét.
+A Szobakezelő egy Home Assistant-helyiség árnyékolóit, lámpáit, kapcsolóit, jelenlét- és nyitásérzékelőit gyűjti egy Lovelace-kártyára. A Biztonság szekcióban a nyugalmi szenzorok zöldek, az aktív szenzorok sárgák.
 
-A lámpák és kapcsolók csempéi kapcsolnak. A dimmelhető lámpák csempéjén külön csúszka állítja a fényerőt. A Lámpák és a Kapcsolók szekció számlálója akkor jelenik meg, ha van bekapcsolt eszköz. Koppintással lekapcsolhatod vele a szekció összes bekapcsolt eszközét. A fejléc lámpajelvénye ugyanezt a lámpaműveletet végzi.
+A lámpák és kapcsolók csempéi koppintásra kapcsolnak. A dimmelhető lámpa csempéjét oldalra húzva állíthatod a fényerőt. A színes sáv a fényerővel arányosan tölti ki a csempét. Billentyűzettel a nyilak, a Home és az End működnek. Az árnyékolóknál a támogatott nyitás, megállítás és zárás műveletek érhetők el, a csempére koppintva pedig az entitás részletei nyílnak meg. A Lámpák és Kapcsolók szekció számlálójára koppintva lekapcsolhatod a szekció bekapcsolt eszközeit.
 
 ## Telepítés
 
@@ -18,9 +18,9 @@ Másold a kiadásból letöltött vagy az `npm run build` paranccsal elkészíte
 
 ## Beállítások
 
-Az automatikus lista először az entitás saját helyiségét nézi, majd az eszközét. A szerkesztőben a Home Assistant kereshető entitásválasztójával adhatsz hozzá entitásokat, akár másik helyiségből is. A kézi besorolás felülírja az automatikusat. Az `exclude` az automatikus listára hat. A Haladó részben a kézzel felvett csempék neve és ikonja megadható. A Lámpák, Kapcsolók, Jelenlét és Ajtók és ablakok szekció külön-külön 1–4 oszlopra állítható. Automatikus módban szélesebb kártyán két, keskenyen egy oszlop jelenik meg.
+Az automatikus lista az entitás saját helyiségét veszi alapul, ennek hiányában az eszköz Home Assistantban örökölt helyiségét. A csoportos entitások kézzel adhatók hozzá. A Haladó részben a rejtett entitások automatikus felvétele is bekapcsolható. A natív szerkesztőben szekciónként adhatsz hozzá és zárhatsz ki entitásokat. A Haladó részben a kézzel felvett csempék neve és ikonja is megadható. Szekciónként 1–4 oszlop állítható be. Automatikus módban szélesebb kártyán két, keskenyen egy oszlop jelenik meg.
 
-A fejléc a kártyán kiválasztott hőmérséklet- és páratartalom-szenzort használja. Ha a mező üres, az adott helyiség **Kapcsolódó szenzorok** beállítása adja a forrást. Kijelölés vagy érvényes mérés hiányában `—` jelenik meg.
+A fejléc a kártyán kiválasztott hőmérséklet- és páratartalom-szenzort használja. Ha a mező üres, az adott helyiség **Kapcsolódó szenzorok** beállítása adja a forrást. Csak a beállított szenzorok jelvényei jelennek meg. Ha egy beállított szenzor éppen elérhetetlen, a jelvénye `—` értéket mutat.
 
 A hőmérséklet- és páratartalom-jelvény az entitás Home Assistant-előzményeit nyitja meg. A hőmérséklet min/max jelvénye az első mérés, illetve az utolsó nullázás óta mutatja a szélsőértékeket. Koppints a min/max jelvényre a nullázáshoz. A tartomány az adott böngészőben mentődik, és a kártya újranyitáskor a Recorder rendelkezésre álló méréseivel egészíti ki.
 
@@ -32,26 +32,29 @@ icon: mdi:sofa
 temperature_entity: sensor.nappali_homerseklet
 humidity_entity: sensor.nappali_paratartalom
 columns:
+  covers: 2
   lights: 2
   switches: 2
-  presence: 3
-  openings: 3
+  security: 3
 include:
+  covers:
+    - cover.nappali_redony
   lights:
     - entity: switch.allolampa
       name: Állólámpa
       icon: mdi:floor-lamp
   switches:
     - switch.teve
-  presence:
+  security:
     - binary_sensor.nappali_jelenlet
-  openings:
     - binary_sensor.teraszajto
 exclude:
   - switch.router
 ```
 
 Az `area` mezőbe a Home Assistant helyiségazonosítója kerül. A `type` és az `area` elegendő az automatikus beállításhoz.
+
+A régi `presence` és `openings` listák a Biztonság szekcióban jelennek meg. Az oszlopszámnál a `security`, majd a `presence`, végül az `openings` értéke élvez elsőbbséget.
 
 ## Fejlesztés és kiadás
 

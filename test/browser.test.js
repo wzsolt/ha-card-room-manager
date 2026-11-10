@@ -40,11 +40,26 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
       window.loadCardHelpers = async () => {
         customElements.define("hui-entities-card", class extends HTMLElement {
           static async getConfigElement() {
-            customElements.define("ha-entity-picker", class extends HTMLElement {
-              choose(value) {
-                if (value && !this.includeEntities.includes(value)) throw new Error("Entity is filtered out");
-                this.value = value;
-                this.dispatchEvent(new CustomEvent("value-changed", { detail: { value }, bubbles: true }));
+            customElements.define("ha-form", class extends HTMLElement {
+              edit(path, value) {
+                let schema = this.schema;
+                const data = structuredClone(this.data);
+                let container = data;
+                for (const name of path.slice(0, -1)) {
+                  schema = schema.find((field) => field.name === name).schema;
+                  container = container[name];
+                }
+                const name = path.at(-1);
+                const field = schema.find((item) => item.name === name);
+                if (!field) throw new Error(`No native field: ${name}`);
+                const picker = field.selector?.entity;
+                if (picker?.multiple && (!Array.isArray(value) ||
+                    value.some((id) => !picker.include_entities.includes(id)))) {
+                  throw new Error("Invalid selection for native multi-entity picker");
+                }
+                container[name] = value;
+                this.data = data;
+                this.dispatchEvent(new CustomEvent("value-changed", { detail: { value: data }, bubbles: true }));
               }
             });
           }
@@ -88,7 +103,7 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     await heading.waitFor();
     assert.equal(await heading.textContent(), "Nappali");
     assert.deepEqual(await card.getByRole("heading", { level: 3 }).allTextContents(),
-      ["Lámpák", "Kapcsolók", "Jelenlét", "Ajtók és ablakok"]);
+      ["Árnyékolók", "Lámpák", "Kapcsolók", "Biztonság"]);
     await card.getByRole("button", { name: "Hőmérséklet · 22,5 °C" }).click();
     await card.getByRole("button", { name: "Páratartalom · 48 %" }).click();
     const range = card.getByRole("button", { name: /nullázása/ });
@@ -112,6 +127,7 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     await card.getByRole("button", { name: /Min 16 \/ Max 29 °C/ }).waitFor();
     assert.equal(await page.evaluate(() => window.historyCalls[0].type), "history/history_during_period");
     assert.equal(await card.locator('[data-entity="light.reading"]').count(), 0);
+    assert.equal(await card.locator('[data-entity="cover.kitchen"], [data-entity="cover.all"], [data-entity="binary_sensor.foreign"], [data-entity="binary_sensor.all"]').count(), 0);
     assert.equal(await card.locator('[data-entity="switch.socket"]').count(), 1);
     await card.locator('[data-entity="binary_sensor.patio"] .tile-main').click();
     assert.deepEqual(await page.evaluate(() => window.details), [
@@ -119,13 +135,24 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
       { entityId: "sensor.room_humidity", view: "history" },
       { entityId: "binary_sensor.patio" },
     ]);
+    await card.getByRole("button", { name: "Megállítás · Nappali redőny" }).click();
     await card.locator('[data-entity="switch.misc"] .tile-main').click();
-    await card.getByRole("slider", { name: /Mennyezeti lámpa/ }).fill("73");
+    const lamp = card.locator('[data-entity="light.ceiling"]');
+    const dimmer = lamp.locator(".tile-main");
+    await dimmer.scrollIntoViewIfNeeded();
+    const bounds = await dimmer.boundingBox();
+    const y = bounds.y + bounds.height / 2;
+    await page.mouse.move(bounds.x + bounds.width * 0.2, y);
+    await page.mouse.down();
+    await page.mouse.move(bounds.x + bounds.width * 0.73, y, { steps: 4 });
+    assert.equal(await lamp.evaluate((node) => node.style.getPropertyValue("--level")), "73%");
+    await page.mouse.up();
     await card.locator(".lights").getByRole("button", { name: /Összes lámpa lekapcsolása/ }).click();
     await card.locator(".switches").getByRole("button", { name: /Összes kapcsoló lekapcsolása/ }).click();
 
     const calls = await page.evaluate(() => window.calls);
     assert.deepEqual(calls, [
+      { domain: "cover", service: "stop_cover", data: {}, target: { entity_id: ["cover.blind"] } },
       { domain: "homeassistant", service: "toggle", data: {}, target: { entity_id: ["switch.misc"] } },
       { domain: "light", service: "turn_on", data: { brightness_pct: 73 }, target: { entity_id: ["light.ceiling"] } },
       { domain: "homeassistant", service: "turn_off", data: {}, target: { entity_id: ["switch.kitchen_lamp", "light.ceiling", "switch.socket"] } },
@@ -153,7 +180,7 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     assert.equal(await color(motion), await color(door));
     assert.equal(await color(clear), await color(closed));
     assert.notEqual(await color(motion), await color(clear));
-    assert.equal(await motion.locator(".glyph ha-icon").getAttribute("icon"), "mdi:run");
+    assert.equal(await motion.locator(".glyph ha-icon").getAttribute("icon"), "mdi:motion-sensor");
     assert.equal(await closed.locator(".glyph ha-icon").getAttribute("icon"), "mdi:window-closed-variant");
 
     const columns = card.locator(".lights .grid");
@@ -174,9 +201,9 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     }
 
     await page.evaluate(() => { window.failService = true; });
-    await card.getByRole("slider").fill("82");
+    await dimmer.press("ArrowRight");
     await card.getByRole("alert").waitFor();
-    assert.equal(await card.getByRole("slider").inputValue(), "60");
+    assert.match(await lamp.locator(".tile-state").textContent(), /60%/);
     await page.evaluate(() => { window.failService = false; });
 
     await page.evaluate(async () => {
@@ -191,34 +218,31 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
       window.editor = editor;
     });
     const editor = page.locator("ha-room-manager-card-editor");
-    const picker = (label) => editor.locator(`ha-entity-picker[data-picker="${label}"]`);
-    await editor.locator("ha-entity-picker").first().waitFor({ state: "attached" });
-    await editor.locator("ha-entity-picker").evaluateAll((nodes) => {
-      for (const node of nodes) node.dataset.picker = node.label;
-    });
-    const choose = (label, id) => picker(label).evaluate((element, value) => element.choose(value), id);
-    await editor.getByText("Lámpák", { exact: true }).click();
-    await editor.getByRole("combobox", { name: "Lámpák · Oszlopok" }).selectOption("4");
+    const form = editor.locator("ha-form");
+    const edit = (path, value) => form.evaluate((element, change) => element.edit(...change), [path, value]);
+    assert.deepEqual(await form.evaluate((element) => element.schema[0].selector), { area: {} });
+    await edit(["lights", "columns"], "4");
     assert.equal(await gridColumns(), 4);
-    await editor.getByRole("combobox", { name: "Lámpák · Oszlopok" }).selectOption("");
+    await edit(["lights", "show_brightness"], false);
+    assert.equal(await lamp.getAttribute("data-dimmable"), null);
+    await edit(["lights", "columns"], "auto");
     assert.equal(await gridColumns(), 1);
-    await editor.getByRole("combobox", { name: "Helyiség" }).selectOption("konyha");
+    await edit(["area"], "konyha");
     assert.equal(await heading.textContent(), "Konyha");
-    await card.getByRole("button", { name: "Hőmérséklet · Nincs mérés" }).waitFor();
-    await choose("Hőmérséklet", "sensor.kitchen_temperature");
+    assert.equal(await card.getByRole("button", { name: /Hőmérséklet|Páratartalom|nullázása/ }).count(), 0);
+    await edit(["temperature_entity"], "sensor.kitchen_temperature");
     await card.getByRole("button", { name: "Hőmérséklet · 71 °F" }).waitFor();
-    await choose("Páratartalom", "sensor.unassigned_humidity");
+    await edit(["humidity_entity"], "sensor.unassigned_humidity");
     await card.getByRole("button", { name: "Páratartalom · 51 %" }).waitFor();
 
-    await editor.getByText("Ajtók és ablakok", { exact: true }).click();
-    await choose("Ajtók és ablakok", "binary_sensor.patio");
-    const openings = editor.locator("details").filter({ hasText: "Ajtók és ablakok" });
-    await openings.getByRole("button", { name: "Hozzáadás" }).click();
-    await editor.getByRole("combobox", { name: "Ajtók és ablakok · Oszlopok" }).selectOption("3");
+    await edit(["covers", "added"], ["cover.blind"]);
+    await card.locator('[data-entity="cover.blind"]').waitFor();
+    await edit(["covers", "added"], []);
+    await card.locator('[data-entity="cover.blind"]').waitFor({ state: "detached" });
+    await edit(["security", "added"], ["binary_sensor.patio"]);
+    await edit(["security", "columns"], "3");
     await card.locator('[data-entity="binary_sensor.patio"]').waitFor();
-    await editor.getByText("Automatikusan felvett entitások kizárása", { exact: true }).click();
-    await choose("Automatikusan felvett entitások kizárása", "light.kitchen");
-    await editor.getByRole("button", { name: "Kizárás" }).click();
+    await edit(["lights", "excluded"], ["light.kitchen"]);
     await card.locator('[data-entity="light.kitchen"]').waitFor({ state: "detached" });
 
     const savedYaml = stringify(await page.evaluate(() => window.config));
@@ -229,9 +253,10 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
       window.card.hass = { ...window.hass };
     }, parse(savedYaml));
     await card.getByRole("button", { name: "Hőmérséklet · Nincs mérés" }).waitFor();
-    assert.equal(await picker("Hőmérséklet").evaluate((node) => node.value), "sensor.kitchen_temperature");
-    assert.equal(await editor.getByRole("combobox", { name: "Ajtók és ablakok · Oszlopok" }).inputValue(), "3");
-    assert.deepEqual(await page.evaluate(() => window.config.include.openings), ["binary_sensor.patio"]);
+    assert.equal(await form.evaluate((node) => node.data.temperature_entity), "sensor.kitchen_temperature");
+    assert.equal(await form.evaluate((node) => node.data.security.columns), "3");
+    assert.deepEqual(await page.evaluate(() => window.config.include.security), ["binary_sensor.patio"]);
+    assert.deepEqual(await page.evaluate(() => window.config.exclude), ["light.reading", "light.kitchen"]);
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();
