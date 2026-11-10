@@ -1,0 +1,6 @@
+{
+  "name": "Room Manager Card",
+  "filename": "ha-room-manager-card.js",
+  "homeassistant": "2026.10.0",
+  "hide_default_branch": true
+}
