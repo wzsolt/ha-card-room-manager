@@ -323,7 +323,7 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     await tooltip.waitFor({ state: "hidden" });
     await hoverAtHour(8);
     await tooltip.waitFor();
-    await page.mouse.move(1, 1);
+    await humidityChart.locator(".chart-value").hover();
     await tooltip.waitFor({ state: "hidden" });
 
     await temperatureChart.click();

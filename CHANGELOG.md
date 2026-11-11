@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.2]
+## [0.4.3]
 
 - Smoothed the temperature and humidity chart lines and added a subtle fill below them. Current readings now appear on the right in the same row as the chart labels.
 - Added chart hover indicators that show the nearest recorded value and its timestamp.

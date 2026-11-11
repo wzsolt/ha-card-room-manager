@@ -94,6 +94,7 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
 .chart-area { fill: var(--accent); opacity: .14; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linecap: round; }
 .chart-marker, .chart-tooltip { position: absolute; pointer-events: none; }
+.chart-graph:not(:hover) > :is(.chart-marker, .chart-tooltip) { visibility: hidden; }
 .chart-marker {
   inset-block: 0;
   border-left: 1px dashed color-mix(in srgb, var(--accent) 65%, transparent);
