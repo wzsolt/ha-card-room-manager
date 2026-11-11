@@ -15,37 +15,72 @@ export function fetchHistory(hass, entityIds, start, end) {
   });
 }
 
-function sparklinePath(history, start, end) {
-  const points = [];
+export const plotWidth = 360;
+export const plotHeight = 30;
+
+function sparkline(history, start, end) {
+  const segments = [];
+  let segment;
   let min = Infinity;
   let max = -Infinity;
+  const position = (time) => plotWidth * (time - start) / (end - start);
   for (const sample of history) {
-    const timestamp = sample.lc ?? sample.lu;
-    if (!Number.isFinite(timestamp) || timestamp * 1000 > end) continue;
+    const timestamp = (sample.lc ?? sample.lu) * 1000;
+    if (!Number.isFinite(timestamp) || timestamp > end) continue;
+    const time = Math.max(start, timestamp);
+    const x = position(time);
     const value = numberFromState(sample.s);
-    points.push({ time: Math.max(start, timestamp * 1000), value });
-    if (value !== undefined) {
-      min = Math.min(min, value);
-      max = Math.max(max, value);
-    }
-  }
-  if (!Number.isFinite(min)) return "";
-
-  const commands = [];
-  let previous;
-  for (const { time, value } of points) {
-    const x = Math.round(360 * (time - start) / (end - start));
     if (value === undefined) {
-      if (previous) commands.push(`H${x}`);
-      previous = false;
+      if (segment) segment.end = x;
+      segment = undefined;
       continue;
     }
-    const y = min === max ? 15 : Math.round(26 - 22 * (value - min) / (max - min));
-    commands.push(previous ? `H${x}V${y}` : `M${x},${y}`);
-    previous = true;
+    if (!segment) {
+      segment = { points: [], end: plotWidth };
+      segments.push(segment);
+    }
+    segment.points.push({ time, x, state: sample.s, value });
+    min = Math.min(min, value);
+    max = Math.max(max, value);
   }
-  if (previous) commands.push("H360");
-  return commands.join("");
+
+  const line = [];
+  const area = [];
+  for (const { points, end } of segments) {
+    for (const point of points) {
+      point.y = min === max ? 15 : 26 - 22 * (point.value - min) / (max - min);
+    }
+    const first = points[0];
+    const commands = [`M${first.x},${first.y}`];
+    for (let index = 1; index < points.length; index++) {
+      const previous = points[index - 1];
+      const point = points[index];
+      // Horizontal tangents join the curves smoothly without overshooting the readings.
+      const middle = (previous.x + point.x) / 2;
+      commands.push(`C${middle},${previous.y} ${middle},${point.y} ${point.x},${point.y}`);
+    }
+    if (points.at(-1).x < end) commands.push(`H${end}`);
+    const path = commands.join("");
+    line.push(path);
+    area.push(`${path}V${plotHeight}H${first.x}Z`);
+  }
+  return { segments, line: line.join(""), area: area.join("") };
+}
+
+export function sampleAt(history, x) {
+  const segment = history?.segments.find(({ points, end }) => x >= points[0].x && x <= end);
+  if (!segment) return undefined;
+  const { points } = segment;
+  let low = 0;
+  let high = points.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (points[middle].x < x) low = middle + 1;
+    else high = middle;
+  }
+  const previous = points[low - 1];
+  const next = points[low];
+  return previous && x - previous.x <= next.x - x ? previous : next;
 }
 
 export class ClimateHistory {
@@ -61,7 +96,7 @@ export class ClimateHistory {
     const key = JSON.stringify(readings.map(({ id, unit }) => [id, unit]));
     if (this.current?.key !== key) {
       this.clear();
-      this.current = { key, requestedAt: 0, paths: {} };
+      this.current = { key, requestedAt: 0, charts: {} };
     }
     const current = this.current;
     const now = Date.now();
@@ -71,7 +106,7 @@ export class ClimateHistory {
       clearTimeout(this.timer);
       this._load(hass, [...new Set(readings.map(({ id }) => id))], current, now);
     }
-    return current.paths;
+    return current.charts;
   }
 
   clear() {
@@ -85,7 +120,7 @@ export class ClimateHistory {
     try {
       const result = await fetchHistory(hass, ids, start, end);
       if (this.current !== current) return;
-      current.paths = Object.fromEntries(ids.map((id) => [id, sparklinePath(result[id] ?? [], start, end)]));
+      current.charts = Object.fromEntries(ids.map((id) => [id, sparkline(result[id] ?? [], start, end)]));
       this.onChange();
     } catch {
       // Recorder may be unavailable. The card still shows the current readings.

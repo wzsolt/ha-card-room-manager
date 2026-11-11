@@ -73,8 +73,7 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
   overflow: hidden;
   display: block;
   width: 100%;
-  min-height: 46px;
-  padding: 5px 8px;
+  padding: 6px 8px 4px;
   border: 0;
   border-radius: 10px;
   color: var(--room-text);
@@ -85,13 +84,47 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
 }
 .climate-chart.temperature { --accent: var(--room-green); }
 .climate-chart.humidity { --accent: var(--room-blue); }
-.climate-chart svg { position: absolute; inset: auto 0 0; width: 100%; height: 22px; pointer-events: none; }
-.climate-chart path { fill: none; stroke: var(--accent); stroke-width: 1.25; vector-effect: non-scaling-stroke; opacity: .62; }
-.chart-label { position: relative; display: flex; align-items: center; gap: 8px; }
-.chart-label .glyph { width: 29px; height: 29px; }
+.chart-label { display: flex; align-items: center; gap: 8px; }
+.chart-label .glyph { width: 27px; height: 27px; }
 .chart-label .glyph ha-icon { --mdc-icon-size: 17px; }
-.chart-title { font-size: .83rem; font-weight: 600; }
-.chart-value { color: var(--accent); font-size: .76rem; font-weight: 650; }
+.chart-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .83rem; font-weight: 600; }
+.chart-value { margin-inline-start: auto; white-space: nowrap; color: var(--accent); font-size: .83rem; font-weight: 650; }
+.chart-graph { display: block; position: relative; height: 30px; cursor: crosshair; }
+.chart-graph svg { display: block; width: 100%; height: 100%; pointer-events: none; }
+.chart-area { fill: var(--accent); opacity: .14; }
+.chart-line { fill: none; stroke: var(--accent); stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.chart-marker, .chart-tooltip { position: absolute; pointer-events: none; }
+.chart-marker {
+  inset-block: 0;
+  border-left: 1px dashed color-mix(in srgb, var(--accent) 65%, transparent);
+}
+.chart-marker::after {
+  content: "";
+  position: absolute;
+  top: var(--sample-y);
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+}
+.chart-tooltip {
+  top: 0;
+  width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--ha-card-background, var(--card-background-color, light-dark(#fff, #1c1c1c)));
+  color: var(--room-text);
+  font-size: .69rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+}
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .covers, .lights { --accent: var(--room-amber); }
 .switches { --accent: var(--room-blue); }

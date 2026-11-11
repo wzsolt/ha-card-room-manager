@@ -87,6 +87,8 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
             { s: "16", lu: start / 1000 },
             { s: "23", lc: start / 1000 + 8 * 60 * 60 },
             { s: "29", lc: start / 1000 + 16 * 60 * 60 },
+            { s: "unavailable", lc: start / 1000 + 18 * 60 * 60 },
+            { s: "25", lc: start / 1000 + 20 * 60 * 60 },
           ]]));
         }
         return { "sensor.room_temperature": [{ s: "16" }, { s: "unknown" }, { s: "29" }] };
@@ -282,16 +284,44 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     const temperatureChart = charts.getByRole("button", { name: /Hőmérséklet.*Elmúlt 24 óra/ });
     const humidityChart = charts.getByRole("button", { name: /Páratartalom.*Elmúlt 24 óra/ });
     await edit(["show_temperature_chart"], true);
-    await temperatureChart.locator("path[d^=M]").waitFor({ state: "attached" });
+    await temperatureChart.locator(".chart-line[d^=M]").waitFor({ state: "attached" });
     assert.equal(await humidityChart.count(), 0);
     await edit(["show_humidity_chart"], true);
-    await humidityChart.locator("path[d^=M]").waitFor({ state: "attached" });
+    await humidityChart.locator(".chart-line[d^=M]").waitFor({ state: "attached" });
     assert.equal(await charts.evaluate((el) => el === el.parentElement.firstElementChild), true);
     assert.deepEqual(await page.evaluate(() => window.historyCalls.filter((request) =>
       Date.parse(request.end_time) - Date.parse(request.start_time) === 24 * 60 * 60 * 1000)
       .map((request) => request.entity_ids)), [
       ["sensor.kitchen_temperature"], ["sensor.kitchen_temperature", "sensor.unassigned_humidity"],
     ]);
+    for (const [chart, value] of [[temperatureChart, "71 °F"], [humidityChart, "51 %"]]) {
+      assert.match(await chart.locator(".chart-line").getAttribute("d"), /C/);
+      assert.match(await chart.locator(".chart-area").getAttribute("d"), /Z.*M.*Z$/);
+      assert.equal(await chart.locator(".chart-value").textContent(), value);
+      const title = await chart.locator(".chart-title").boundingBox();
+      const current = await chart.locator(".chart-value").boundingBox();
+      assert.equal(title.y, current.y);
+      assert.ok(title.x + title.width < current.x);
+    }
+    const graph = temperatureChart.locator(".chart-graph");
+    const tooltip = temperatureChart.locator(".chart-tooltip");
+    await graph.scrollIntoViewIfNeeded();
+    const graphBox = await graph.boundingBox();
+    const hoverAtHour = (hour) => page.mouse.move(graphBox.x + graphBox.width * hour / 24, graphBox.y + 20);
+    await hoverAtHour(8);
+    await tooltip.waitFor();
+    assert.match(await tooltip.textContent(), /\d{1,2}:\d{2}.* · 23 °F$/);
+    await hoverAtHour(16);
+    assert.match(await tooltip.textContent(), / · 29 °F$/);
+    assert.equal(await temperatureChart.locator(".chart-value").textContent(), "71 °F");
+    await hoverAtHour(19);
+    await tooltip.waitFor({ state: "hidden" });
+    await hoverAtHour(22);
+    await tooltip.waitFor();
+    assert.match(await tooltip.textContent(), / · 25 °F$/);
+    await temperatureChart.locator(".chart-title").hover();
+    await tooltip.waitFor({ state: "hidden" });
+
     await temperatureChart.click();
     await humidityChart.click();
     assert.deepEqual(await page.evaluate(() => window.details.slice(-2)), [
@@ -299,6 +329,7 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
       { entityId: "sensor.unassigned_humidity", view: "history" },
     ]);
     if (process.env.ROOM_MANAGER_SCREENSHOTS) {
+      await temperatureChart.locator(".chart-graph").hover();
       await card.screenshot({ path: join(process.env.ROOM_MANAGER_SCREENSHOTS, "room-climate.png") });
     }
     await edit(["show_temperature_chart"], false);

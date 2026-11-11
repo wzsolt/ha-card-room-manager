@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.1]
+
+- Smoothed the temperature and humidity chart lines and added a subtle fill below them. Current readings now appear on the right in the same row as the chart labels.
+- Added chart hover indicators that show the nearest recorded value and its timestamp.
+
 ## [0.4.0]
 
 - Added separate temperature and humidity chart switches to the visual editor and YAML. The borderless charts show the last 24 hours of Recorder history at the top of the card and open Home Assistant's native history when tapped.

@@ -5,6 +5,7 @@ import { labels } from "./text.js";
 import { RoomManagerEditor } from "./editor.js";
 import { TemperatureRange } from "./temperature.js";
 import { ClimateHistory } from "./history.js";
+import { climateChart } from "./climate-chart.js";
 import { enableBrightnessDrag } from "./brightness.js";
 
 const glyphs = {
@@ -39,21 +40,6 @@ function updateChip(chip, value, tone, label = value, visible = true) {
 
 function glyph(name) {
   return element("span", "glyph", icon(name));
-}
-
-function climateChart(kind, action) {
-  const namespace = "http://www.w3.org/2000/svg";
-  const plot = document.createElementNS(namespace, "svg");
-  const path = document.createElementNS(namespace, "path");
-  plot.setAttribute("viewBox", "0 0 360 30");
-  plot.setAttribute("preserveAspectRatio", "none");
-  plot.setAttribute("aria-hidden", "true");
-  plot.append(path);
-  const title = element("span", "chart-title");
-  const value = element("span", "chart-value");
-  const content = element("span", "chart-label", glyph(measurementIcons[kind]),
-    element("span", "tile-text", title, value));
-  return { node: button(`climate-chart ${kind}`, action, plot, content), title, value, path };
 }
 
 function section(name, content, ...badges) {
@@ -187,7 +173,7 @@ class RoomManagerCard extends HTMLElement {
       return [group, { ...section(group, grid, badge), grid, badge }];
     }));
     this._charts = Object.fromEntries(MEASUREMENTS.map((kind) => [
-      kind, climateChart(kind, () => this._showHistory(kind)),
+      kind, climateChart(kind, glyph(measurementIcons[kind]), () => this._showHistory(kind)),
     ]));
     this._climate = element("section", "climate", ...Object.values(this._charts).map(({ node }) => node));
     this._sectionList = element("div", "sections", this._climate, ...Object.values(this._sections).map(({ node }) => node));
@@ -259,17 +245,26 @@ class RoomManagerCard extends HTMLElement {
 
   _updateCharts(room, text) {
     const enabled = this._enabledCharts(room);
-    const paths = this._climateHistory.update(this._hass, enabled.map((kind) => room.measurements[kind]));
+    const hass = this._hass;
+    const history = this._climateHistory.update(hass, enabled.map((kind) => room.measurements[kind]));
     this._climate.hidden = !enabled.length;
     this._climate.setAttribute("aria-label", text.chartPeriod);
     for (const kind of MEASUREMENTS) {
-      const { id, display } = room.measurements[kind];
+      const { id, unit, display } = room.measurements[kind];
       const chart = this._charts[kind];
       chart.node.hidden = !enabled.includes(kind);
       chart.title.textContent = text[kind];
       chart.value.textContent = display ?? "—";
       chart.node.setAttribute("aria-label", `${text[kind]} · ${display ?? text.noReading} · ${text.chartPeriod}`);
-      chart.path.setAttribute("d", paths[id] ?? "");
+      chart.setHistory(history[id], ({ time, state }) => {
+        const source = hass.states?.[id];
+        const reading = (source && hass.formatEntityState?.({ ...source, state }))
+          ?? [state, unit].filter(Boolean).join(" ");
+        const date = new Date(time).toLocaleString(hass.locale?.language || hass.language, {
+          month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+        });
+        return `${date} · ${reading}`;
+      });
     }
     return Boolean(enabled.length);
   }
