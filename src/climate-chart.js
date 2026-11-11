@@ -30,11 +30,15 @@ export function climateChart(kind, glyph, action) {
     shownSample = undefined;
   };
   hideSample();
-  graph.addEventListener("pointerleave", hideSample);
-  graph.addEventListener("pointermove", (event) => {
+  node.addEventListener("pointerleave", hideSample);
+  node.addEventListener("pointermove", (event) => {
     if (event.pointerType === "touch" || !history) return;
-    const { left, width } = graph.getBoundingClientRect();
-    if (!width) return;
+    const { left, right, top, bottom, width } = graph.getBoundingClientRect();
+    if (!width || event.clientX < left || event.clientX >= right
+        || event.clientY < top || event.clientY >= bottom) {
+      hideSample();
+      return;
+    }
     const sample = sampleAt(history, (event.clientX - left) / width * plotWidth);
     if (!sample) {
       hideSample();

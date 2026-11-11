@@ -319,7 +319,11 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     await hoverAtHour(22);
     await tooltip.waitFor();
     assert.match(await tooltip.textContent(), / · 25 °F$/);
-    await temperatureChart.locator(".chart-title").hover();
+    await page.mouse.move(graphBox.x + graphBox.width / 2, graphBox.y - 6);
+    await tooltip.waitFor({ state: "hidden" });
+    await hoverAtHour(8);
+    await tooltip.waitFor();
+    await page.mouse.move(1, 1);
     await tooltip.waitFor({ state: "hidden" });
 
     await temperatureChart.click();
