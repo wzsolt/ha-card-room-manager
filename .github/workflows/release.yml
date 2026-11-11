@@ -1,4 +1,4 @@
-name: Release and HACS Validation
+name: Release
 
 on:
   push:
@@ -54,13 +54,3 @@ jobs:
             fi
             gh release create "$version" "dist/$filename" --verify-tag --notes-file "$notes_file"
           fi
-
-  validate-hacs:
-    needs: release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: hacs/action@main
-        with:
-          category: plugin
-          comment: "false"
-          ignore: images

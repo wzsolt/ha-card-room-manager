@@ -1,7 +1,7 @@
 # Room Manager Card
 
 [![Marketplace Custom](https://img.shields.io/badge/Marketplace-Custom-2ea3cf)](#hacs-or-marketplace)
-[![HACS Validation](https://img.shields.io/github/actions/workflow/status/wzsolt/ha-card-room-manager/release.yml?label=HACS%20Validation&logo=github)](https://github.com/wzsolt/ha-card-room-manager/actions/workflows/release.yml)
+[![HACS Validation](https://img.shields.io/github/actions/workflow/status/wzsolt/ha-card-room-manager/hacs.yml?branch=main&label=HACS%20Validation&logo=github)](https://github.com/wzsolt/ha-card-room-manager/actions/workflows/hacs.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/wzsolt/ha-card-room-manager/card.yml?branch=main&event=push&label=Validate&logo=github)](https://github.com/wzsolt/ha-card-room-manager/actions/workflows/card.yml?query=branch%3Amain)
 [![Lint](https://img.shields.io/github/actions/workflow/status/wzsolt/ha-card-room-manager/lint.yml?branch=main&event=push&label=Lint&logo=github)](https://github.com/wzsolt/ha-card-room-manager/actions/workflows/lint.yml?query=branch%3Amain)
 [![Latest release](https://img.shields.io/github/v/release/wzsolt/ha-card-room-manager)](https://github.com/wzsolt/ha-card-room-manager/releases/latest)
