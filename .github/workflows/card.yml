@@ -53,7 +53,17 @@ jobs:
               gh release upload "$version" "dist/$filename"
             fi
           else
-            gh release create "$version" "dist/$filename" --verify-tag --generate-notes
+            notes_file=$(mktemp)
+            awk -v heading="## [${version#v}]" '
+              $0 == heading { in_section = 1; next }
+              in_section && /^## / { exit }
+              in_section { print }
+            ' CHANGELOG.md > "$notes_file"
+            if ! awk 'NF { found = 1 } END { exit !found }' "$notes_file"; then
+              echo "::error::Add a nonempty ## [${version#v}] section to CHANGELOG.md before tagging."
+              exit 1
+            fi
+            gh release create "$version" "dist/$filename" --verify-tag --notes-file "$notes_file"
           fi
 
   validate-hacs:

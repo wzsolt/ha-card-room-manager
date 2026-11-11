@@ -81,6 +81,14 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
       };
       hass.callWS = async (request) => {
         window.historyCalls.push(request);
+        const start = Date.parse(request.start_time);
+        if (Date.parse(request.end_time) - start === 24 * 60 * 60 * 1000) {
+          return Object.fromEntries(request.entity_ids.map((id) => [id, [
+            { s: "16", lu: start / 1000 },
+            { s: "23", lc: start / 1000 + 8 * 60 * 60 },
+            { s: "29", lc: start / 1000 + 16 * 60 * 60 },
+          ]]));
+        }
         return { "sensor.room_temperature": [{ s: "16" }, { s: "unknown" }, { s: "29" }] };
       };
       hass.formatEntityState = (state) => state.state.replace(".", ",") + " " + state.attributes.unit_of_measurement;
@@ -165,6 +173,22 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
       window.card.hass = { ...window.hass };
     });
     assert.equal(await card.locator(".section-badges").getByRole("button").count(), 0);
+    const summary = card.locator(".summary");
+    assert.equal(await summary.locator(".chip:visible").count(), 5);
+    await page.evaluate(() => {
+      window.hass.states["cover.blind"].state = "closed";
+      window.hass.states["binary_sensor.motion"].state = "off";
+      window.hass.states["binary_sensor.camera_motion"].state = "off";
+      window.hass.states["binary_sensor.patio"].state = "off";
+      window.card.hass = { ...window.hass };
+    });
+    await summary.getByRole("img", { name: "Biztonság · Minden zárva" }).waitFor();
+    assert.equal(await summary.locator(".chip:visible").count(), 4);
+    await page.evaluate(() => {
+      window.hass.states["binary_sensor.motion"].state = "on";
+      window.hass.states["binary_sensor.patio"].state = "on";
+      window.card.hass = { ...window.hass };
+    });
     await page.evaluate(() => {
       window.hass.states["light.ceiling"].state = "on";
       window.card.hass = { ...window.hass };
@@ -177,7 +201,23 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     const door = card.locator('[data-entity="binary_sensor.patio"]');
     const closed = card.locator('[data-entity="binary_sensor.window"]');
     const color = (tile) => tile.locator(".glyph").evaluate((el) => getComputedStyle(el).color);
-    assert.equal(await color(motion), await color(door));
+    const palette = await card.evaluate((el) => {
+      const root = el.shadowRoot.querySelector("ha-card");
+      return ["amber", "red", "green"].map((tone) => {
+        const probe = document.createElement("span");
+        probe.style.color = "var(--room-" + tone + ")";
+        root.append(probe);
+        const color = getComputedStyle(probe).color;
+        probe.remove();
+        return color;
+      });
+    });
+    assert.deepEqual(await Promise.all([motion, door, closed].map(color)), palette);
+    for (const tile of [motion, door]) {
+      assert.equal(await tile.evaluate((el) => getComputedStyle(el).borderTopColor), "rgba(0, 0, 0, 0)");
+      assert.notEqual(await tile.evaluate((el) => getComputedStyle(el).backgroundColor),
+        await closed.evaluate((el) => getComputedStyle(el).backgroundColor));
+    }
     assert.equal(await color(clear), await color(closed));
     assert.notEqual(await color(motion), await color(clear));
     assert.equal(await motion.locator(".glyph ha-icon").getAttribute("icon"), "mdi:motion-sensor");
@@ -235,6 +275,36 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     await edit(["humidity_entity"], "sensor.unassigned_humidity");
     await card.getByRole("button", { name: "Páratartalom · 51 %" }).waitFor();
 
+    const charts = card.locator(".climate");
+    assert.equal(await charts.getByRole("button").count(), 0);
+    assert.equal(await page.evaluate(() => window.historyCalls.some((request) =>
+      Date.parse(request.end_time) - Date.parse(request.start_time) === 24 * 60 * 60 * 1000)), false);
+    const temperatureChart = charts.getByRole("button", { name: /Hőmérséklet.*Elmúlt 24 óra/ });
+    const humidityChart = charts.getByRole("button", { name: /Páratartalom.*Elmúlt 24 óra/ });
+    await edit(["show_temperature_chart"], true);
+    await temperatureChart.locator("path[d^=M]").waitFor({ state: "attached" });
+    assert.equal(await humidityChart.count(), 0);
+    await edit(["show_humidity_chart"], true);
+    await humidityChart.locator("path[d^=M]").waitFor({ state: "attached" });
+    assert.equal(await charts.evaluate((el) => el === el.parentElement.firstElementChild), true);
+    assert.deepEqual(await page.evaluate(() => window.historyCalls.filter((request) =>
+      Date.parse(request.end_time) - Date.parse(request.start_time) === 24 * 60 * 60 * 1000)
+      .map((request) => request.entity_ids)), [
+      ["sensor.kitchen_temperature"], ["sensor.kitchen_temperature", "sensor.unassigned_humidity"],
+    ]);
+    await temperatureChart.click();
+    await humidityChart.click();
+    assert.deepEqual(await page.evaluate(() => window.details.slice(-2)), [
+      { entityId: "sensor.kitchen_temperature", view: "history" },
+      { entityId: "sensor.unassigned_humidity", view: "history" },
+    ]);
+    if (process.env.ROOM_MANAGER_SCREENSHOTS) {
+      await card.screenshot({ path: join(process.env.ROOM_MANAGER_SCREENSHOTS, "room-climate.png") });
+    }
+    await edit(["show_temperature_chart"], false);
+    assert.equal(await temperatureChart.count(), 0);
+    assert.equal(await humidityChart.count(), 1);
+
     await edit(["covers", "added"], ["cover.blind"]);
     await card.locator('[data-entity="cover.blind"]').waitFor();
     await edit(["covers", "added"], []);
@@ -255,6 +325,8 @@ test("Lovelace preview, actions, and editor round trip in Chromium", { timeout: 
     await card.getByRole("button", { name: "Hőmérséklet · Nincs mérés" }).waitFor();
     assert.equal(await form.evaluate((node) => node.data.temperature_entity), "sensor.kitchen_temperature");
     assert.equal(await form.evaluate((node) => node.data.security.columns), "3");
+    assert.equal(await form.evaluate((node) => node.data.show_humidity_chart), true);
+    assert.equal(await form.evaluate((node) => node.data.show_temperature_chart), false);
     assert.deepEqual(await page.evaluate(() => window.config.include.security), ["binary_sensor.patio"]);
     assert.deepEqual(await page.evaluate(() => window.config.exclude), ["light.reading", "light.kitchen"]);
     assert.deepEqual(errors, []);

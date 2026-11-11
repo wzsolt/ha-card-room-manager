@@ -4,6 +4,7 @@ import { cardStyles } from "./styles.js";
 import { labels } from "./text.js";
 import { RoomManagerEditor } from "./editor.js";
 import { TemperatureRange } from "./temperature.js";
+import { ClimateHistory } from "./history.js";
 import { enableBrightnessDrag } from "./brightness.js";
 
 const glyphs = {
@@ -18,6 +19,8 @@ const coverControls = [
   { key: "stop", feature: 8, icon: "mdi:stop", service: "stop_cover" },
   { key: "close", feature: 2, icon: "mdi:arrow-down", service: "close_cover" },
 ];
+
+const measurementIcons = { temperature: "mdi:thermometer", humidity: "mdi:water-percent" };
 
 function chip(name, action) {
   const value = element("span");
@@ -36,6 +39,21 @@ function updateChip(chip, value, tone, label = value, visible = true) {
 
 function glyph(name) {
   return element("span", "glyph", icon(name));
+}
+
+function climateChart(kind, action) {
+  const namespace = "http://www.w3.org/2000/svg";
+  const plot = document.createElementNS(namespace, "svg");
+  const path = document.createElementNS(namespace, "path");
+  plot.setAttribute("viewBox", "0 0 360 30");
+  plot.setAttribute("preserveAspectRatio", "none");
+  plot.setAttribute("aria-hidden", "true");
+  plot.append(path);
+  const title = element("span", "chart-title");
+  const value = element("span", "chart-value");
+  const content = element("span", "chart-label", glyph(measurementIcons[kind]),
+    element("span", "tile-text", title, value));
+  return { node: button(`climate-chart ${kind}`, action, plot, content), title, value, path };
 }
 
 function section(name, content, ...badges) {
@@ -70,10 +88,8 @@ function tileState(item, text) {
   return on ? text.on : text.off;
 }
 
-function securityStatus(items, on, unavailable, text) {
-  const openings = items.filter((item) => item.securityType === "opening");
-  const open = openings.filter(isActive).length;
-  if (!on) return unavailable ? text.unknown : openings.length ? text.allClosed : text.inactive;
+function securityStatus(hasOpenings, open, on, unavailable, text) {
+  if (!on) return unavailable ? text.unknown : hasOpenings ? text.allClosed : text.inactive;
   return [open ? text.countOpen(open) : "", on > open ? text.detected : ""].filter(Boolean).join(" · ");
 }
 
@@ -107,6 +123,7 @@ class RoomManagerCard extends HTMLElement {
     this._tiles = new Map();
     this._pending = new Set();
     this._temperatureRange = new TemperatureRange(() => this._queueRender());
+    this._climateHistory = new ClimateHistory(() => this._queueRender());
   }
 
   setConfig(config) {
@@ -125,9 +142,13 @@ class RoomManagerCard extends HTMLElement {
     this._queueRender();
   }
 
+  disconnectedCallback() {
+    this._climateHistory.clear();
+  }
+
   getCardSize() {
     if (!this._room) return 2;
-    return 2 + GROUPS.reduce((rows, group) => {
+    return 2 + this._enabledCharts(this._room).length + GROUPS.reduce((rows, group) => {
       const count = this._room.groups[group].length;
       return count ? rows + 1 + Math.ceil(count / (this._config?.columns?.[group] ?? 2)) : rows;
     }, 0);
@@ -150,12 +171,13 @@ class RoomManagerCard extends HTMLElement {
     this._heading = element("h2");
     this._areaGlyph = glyph("mdi:home-outline");
     this._badges = {
-      temperature: chip("mdi:thermometer", () => this._showHistory("temperature")),
+      temperature: chip(measurementIcons.temperature, () => this._showHistory("temperature")),
       range: chip("mdi:restore", () => this._resetRange()),
-      humidity: chip("mdi:water-percent", () => this._showHistory("humidity")),
+      humidity: chip(measurementIcons.humidity, () => this._showHistory("humidity")),
       security: chip(glyphs.security),
       lights: chip("mdi:lightbulb", () => this._allOff("lights")),
       switches: chip("mdi:power-socket-eu"),
+      covers: chip(glyphs.covers),
     };
 
     this._sections = Object.fromEntries(GROUPS.map((group) => {
@@ -164,7 +186,11 @@ class RoomManagerCard extends HTMLElement {
       const badge = chip(action ? "mdi:power" : glyphs[group], action);
       return [group, { ...section(group, grid, badge), grid, badge }];
     }));
-    this._sectionList = element("div", "sections", ...Object.values(this._sections).map(({ node }) => node));
+    this._charts = Object.fromEntries(MEASUREMENTS.map((kind) => [
+      kind, climateChart(kind, () => this._showHistory(kind)),
+    ]));
+    this._climate = element("section", "climate", ...Object.values(this._charts).map(({ node }) => node));
+    this._sectionList = element("div", "sections", this._climate, ...Object.values(this._sections).map(({ node }) => node));
     this._summary = element("div", "summary", ...Object.values(this._badges).map(({ node }) => node));
     this._message = element("p", "notice");
     this._failure = element("p", "notice error");
@@ -192,12 +218,13 @@ class RoomManagerCard extends HTMLElement {
     this._sectionList.hidden = !room;
     this._message.hidden = false;
     if (!room) {
+      this._climateHistory.clear();
       this._message.textContent = config.area && hass?.areas ? text.missingArea : text.selectArea;
       return;
     }
 
     this._updateMeasurements(room, text);
-    let first = true;
+    let first = !this._updateCharts(room, text);
     for (const group of GROUPS) {
       this._updateGroup(group, room, text, first);
       if (room.groups[group].length) first = false;
@@ -226,6 +253,27 @@ class RoomManagerCard extends HTMLElement {
     updateChip(this._badges.range, display, "quiet", `${text.resetRange} · ${display}`, Boolean(range));
   }
 
+  _enabledCharts(room) {
+    return MEASUREMENTS.filter((kind) => this._config?.[`show_${kind}_chart`] && room.measurements[kind].id);
+  }
+
+  _updateCharts(room, text) {
+    const enabled = this._enabledCharts(room);
+    const paths = this._climateHistory.update(this._hass, enabled.map((kind) => room.measurements[kind]));
+    this._climate.hidden = !enabled.length;
+    this._climate.setAttribute("aria-label", text.chartPeriod);
+    for (const kind of MEASUREMENTS) {
+      const { id, display } = room.measurements[kind];
+      const chart = this._charts[kind];
+      chart.node.hidden = !enabled.includes(kind);
+      chart.title.textContent = text[kind];
+      chart.value.textContent = display ?? "—";
+      chart.node.setAttribute("aria-label", `${text[kind]} · ${display ?? text.noReading} · ${text.chartPeriod}`);
+      chart.path.setAttribute("d", paths[id] ?? "");
+    }
+    return Boolean(enabled.length);
+  }
+
   _updateGroup(group, room, text, first) {
     const items = room.groups[group];
     const view = this._sections[group];
@@ -238,17 +286,24 @@ class RoomManagerCard extends HTMLElement {
 
     const { on, unavailable } = room.totals[group];
     const controllable = CONTROL_GROUPS.includes(group);
-    if (group === "security") view.node.toggleAttribute("data-alert", on > 0);
     let value = group === "covers" ? text.countOpen(on) : text.countOn(on);
-    const tone = on ? (group === "switches" ? "info" : "warn")
+    let tone = on ? (group === "switches" ? "info" : "warn")
       : (controllable || unavailable ? "quiet" : "good");
-    if (group === "security") value = securityStatus(items, on, unavailable, text);
+    if (group === "security") {
+      const openings = items.filter((item) => item.securityType === "opening");
+      const open = openings.filter(isActive).length;
+      value = securityStatus(Boolean(openings.length), open, on, unavailable, text);
+      if (open) tone = "danger";
+      view.node.toggleAttribute("data-alert", on > 0);
+      view.node.toggleAttribute("data-open", open > 0);
+    }
     const status = unavailable ? `${value} · ${text.countUnavailable(unavailable)}` : value;
     const label = `${text[group]} · ${status}`;
     const display = unavailable && (group !== "security" || on) ? `${value} · ?` : value;
     const actionLabel = controllable ? `${text.allOff[group]} · ${label}` : label;
     if (this._badges[group]) {
-      updateChip(this._badges[group], display, tone, group === "lights" ? actionLabel : label, Boolean(items.length));
+      const visible = group === "security" ? Boolean(items.length) : on > 0;
+      updateChip(this._badges[group], display, tone, group === "lights" ? actionLabel : label, visible);
     }
     updateChip(view.badge, display, tone, actionLabel, controllable ? on > 0 : Boolean(items.length));
     if (controllable) {
@@ -296,6 +351,7 @@ class RoomManagerCard extends HTMLElement {
     const pending = this._pending.has(item.entity);
     view.node.dataset.group = item.group;
     view.node.toggleAttribute("data-sensor", item.group === "security");
+    view.node.toggleAttribute("data-open", item.securityType === "opening" && on);
     view.node.toggleAttribute("data-active", on);
     view.node.toggleAttribute("data-unavailable", !available);
     view.symbol.firstChild.setAttribute("icon", tileIcon(item));

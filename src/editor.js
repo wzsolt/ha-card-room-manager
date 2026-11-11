@@ -72,8 +72,11 @@ export class RoomManagerEditor extends HTMLElement {
     const schema = [{ name: "area", selector: { area: {} } }, { name: "title", selector: { text: {} } }];
     for (const kind of MEASUREMENTS) {
       const name = `${kind}_entity`;
+      const showChart = `show_${kind}_chart`;
       data[name] = config[name];
+      data[showChart] = config[showChart] ?? false;
       schema.push(entityField(name, { filter: { domain: "sensor", device_class: kind } }));
+      schema.push({ name: showChart, selector: { boolean: {} } });
     }
 
     this._overrides = [];
@@ -178,6 +181,8 @@ export class RoomManagerEditor extends HTMLElement {
     const fields = {
       area: trimText(data.area), title: trimText(data.title), icon: trimText(advanced.icon),
       temperature_entity: trimText(data.temperature_entity), humidity_entity: trimText(data.humidity_entity),
+      show_temperature_chart: data.show_temperature_chart === true ? true : undefined,
+      show_humidity_chart: data.show_humidity_chart === true ? true : undefined,
       show_brightness: data.lights?.show_brightness === false ? false : undefined,
       include_hidden: advanced.include_hidden || undefined,
       include: Object.keys(include).length ? include : undefined,

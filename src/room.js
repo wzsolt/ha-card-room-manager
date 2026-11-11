@@ -65,7 +65,7 @@ export function validateConfig(config) {
       throw new Error(`${key} must be a string.`);
     }
   }
-  for (const key of ["show_brightness", "include_hidden"]) {
+  for (const key of ["show_brightness", "include_hidden", "show_temperature_chart", "show_humidity_chart"]) {
     if (config[key] !== undefined && typeof config[key] !== "boolean") {
       throw new Error(`${key} must be a boolean.`);
     }

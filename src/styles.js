@@ -8,6 +8,7 @@ export const cardStyles = `
   --room-amber: light-dark(#865400, #ffc44c);
   --room-blue: light-dark(#006b95, #61c5f0);
   --room-green: light-dark(#23763a, #77ca89);
+  --room-red: light-dark(#a52c34, #ff8585);
   color: var(--room-text);
   font-family: var(--primary-font-family, inherit);
 }
@@ -62,14 +63,41 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
 .chip.warn { --accent: var(--room-amber); }
 .chip.info { --accent: var(--room-blue); }
 .chip.good { --accent: var(--room-green); }
+.chip.danger { --accent: var(--room-red); }
 .sections { margin-top: 10px; }
 .section { padding: 12px 0; border-top: 1px solid var(--room-line); }
-.section:first-of-type, .section[data-first] { border-top: 0; }
+.section[data-first] { border-top: 0; }
+.climate { display: grid; gap: 6px; padding-bottom: 10px; }
+.climate-chart {
+  position: relative;
+  overflow: hidden;
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--room-text);
+  background: color-mix(in srgb, var(--room-text) 6%, transparent);
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+.climate-chart.temperature { --accent: var(--room-green); }
+.climate-chart.humidity { --accent: var(--room-blue); }
+.climate-chart svg { position: absolute; inset: auto 0 0; width: 100%; height: 22px; pointer-events: none; }
+.climate-chart path { fill: none; stroke: var(--accent); stroke-width: 1.25; vector-effect: non-scaling-stroke; opacity: .62; }
+.chart-label { position: relative; display: flex; align-items: center; gap: 8px; }
+.chart-label .glyph { width: 29px; height: 29px; }
+.chart-label .glyph ha-icon { --mdc-icon-size: 17px; }
+.chart-title { font-size: .83rem; font-weight: 600; }
+.chart-value { color: var(--accent); font-size: .76rem; font-weight: 650; }
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .covers, .lights { --accent: var(--room-amber); }
 .switches { --accent: var(--room-blue); }
 .security { --accent: var(--room-green); }
 .security[data-alert] .section-title .glyph { --accent: var(--room-amber); }
+.security[data-open] .section-title .glyph { --accent: var(--room-red); }
 .grid { display: grid; grid-template-columns: repeat(var(--room-columns, 2), minmax(0, 1fr)); gap: 7px; }
 .tile {
   container-type: inline-size;
@@ -98,6 +126,8 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
 }
 .tile[data-unavailable] .tile-state { color: var(--room-muted); }
 .tile[data-sensor][data-active] { --accent: var(--room-amber); }
+.tile[data-sensor][data-open] { --accent: var(--room-red); }
+.tile[data-sensor][data-active] { border-color: transparent; }
 .tile:not([data-active]) .glyph { --accent: var(--room-muted); }
 .tile[data-sensor]:not([data-unavailable]) .glyph { --accent: inherit; }
 .tile-main, .details, .cover-action {

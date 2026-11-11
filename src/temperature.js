@@ -1,4 +1,5 @@
 import { numberFromState } from "./room.js";
+import { fetchHistory } from "./history.js";
 
 export class TemperatureRange {
   constructor(onHistory) {
@@ -55,15 +56,7 @@ export class TemperatureRange {
 
   async _backfill(hass, entityId, current, end) {
     try {
-      const result = await hass.callWS({
-        type: "history/history_during_period",
-        entity_ids: [entityId],
-        start_time: new Date(current.range.through).toISOString(),
-        end_time: new Date(end).toISOString(),
-        minimal_response: true,
-        no_attributes: true,
-        significant_changes_only: false,
-      });
+      const result = await fetchHistory(hass, [entityId], current.range.through, end);
       if (this.current !== current) return;
       const range = current.range;
       for (const point of result[entityId] ?? []) {

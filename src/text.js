@@ -7,6 +7,7 @@ const en = {
   security: "Security", covers: "Covers",
   lights: "Lights", switches: "Switches",
   temperature: "Temperature", humidity: "Humidity",
+  chartPeriod: "Last 24 hours",
   detected: "Presence detected", allClosed: "All closed",
   on: "On", off: "Off", open: "Open", closed: "Closed",
   opening: "Opening", closing: "Closing",
@@ -23,6 +24,7 @@ const en = {
     area: "Room", temperature_entity: "Temperature sensor", humidity_entity: "Humidity sensor",
     added: "Entities to add", excluded: "Entities to exclude", other_excluded: "Other excluded entities",
     show_brightness: "Show and adjust brightness", include_hidden: "Include hidden entities",
+    show_temperature_chart: "Show temperature chart", show_humidity_chart: "Show humidity chart",
   },
   editorHelp: {
     title: "Leave empty to use the room name.",
@@ -46,6 +48,7 @@ const hu = {
   security: "Biztonság", covers: "Árnyékolók",
   lights: "Lámpák", switches: "Kapcsolók",
   temperature: "Hőmérséklet", humidity: "Páratartalom",
+  chartPeriod: "Elmúlt 24 óra",
   detected: "Jelenlét érzékelve", allClosed: "Minden zárva",
   on: "Bekapcsolva", off: "Kikapcsolva", open: "Nyitva", closed: "Zárva",
   opening: "Nyitás", closing: "Zárás",
@@ -62,6 +65,8 @@ const hu = {
     area: "Helyiség", temperature_entity: "Hőmérséklet-szenzor", humidity_entity: "Páratartalom-szenzor",
     added: "Hozzáadandó entitások", excluded: "Kizárandó entitások", other_excluded: "Egyéb kizárt entitások",
     show_brightness: "Fényerő megjelenítése és állítása", include_hidden: "Rejtett entitások megjelenítése",
+    show_temperature_chart: "Hőmérsékletgrafikon megjelenítése",
+    show_humidity_chart: "Páratartalom-grafikon megjelenítése",
   },
   editorHelp: {
     title: "Üresen hagyva a helyiség neve jelenik meg.",
