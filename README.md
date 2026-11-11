@@ -1,10 +1,11 @@
 # Room Manager Card
 
 [![Marketplace Custom](https://img.shields.io/badge/Marketplace-Custom-2ea3cf)](#hacs-or-marketplace)
-[![HACS Validation v0.4.3 passing](https://img.shields.io/badge/HACS%20Validation-v0.4.3%20passing-brightgreen?logo=github)](https://github.com/wzsolt/ha-card-room-manager/actions/runs/43014840788/job/130503560901)
+[![HACS Validation](https://img.shields.io/github/actions/workflow/status/wzsolt/ha-card-room-manager/release.yml?label=HACS%20Validation&logo=github)](https://github.com/wzsolt/ha-card-room-manager/actions/workflows/release.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/wzsolt/ha-card-room-manager/card.yml?branch=main&event=push&label=Validate&logo=github)](https://github.com/wzsolt/ha-card-room-manager/actions/workflows/card.yml?query=branch%3Amain)
+[![Lint](https://img.shields.io/github/actions/workflow/status/wzsolt/ha-card-room-manager/lint.yml?branch=main&event=push&label=Lint&logo=github)](https://github.com/wzsolt/ha-card-room-manager/actions/workflows/lint.yml?query=branch%3Amain)
 [![Latest release](https://img.shields.io/github/v/release/wzsolt/ha-card-room-manager)](https://github.com/wzsolt/ha-card-room-manager/releases/latest)
-[![License MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
+[![License](https://img.shields.io/github/license/wzsolt/ha-card-room-manager?label=License&color=yellow)](LICENSE)
 
 Room Manager is a custom Home Assistant dashboard card for one area. It discovers that area's covers, lights, switches, and security sensors. The visual editor uses Home Assistant's native area and entity pickers, and lets you add or exclude entities and choose the layout of each section.
 
