@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
         with:
@@ -23,5 +23,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npx playwright-core install --with-deps chromium
-      - run: npm run test:browser
+      - name: Run browser tests with the runner's Chrome
+        run: |
+          chrome="$(command -v google-chrome)"
+          "$chrome" --version
+          ROOM_MANAGER_CHROMIUM="$chrome" npm run test:browser
