@@ -93,8 +93,10 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
 .chart-graph svg { display: block; width: 100%; height: 100%; pointer-events: none; }
 .chart-area { fill: var(--accent); opacity: .14; }
 .chart-line { fill: none; stroke: var(--accent); stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linecap: round; }
-.chart-marker, .chart-tooltip { position: absolute; pointer-events: none; }
-.chart-graph:not(:hover) > :is(.chart-marker, .chart-tooltip) { visibility: hidden; }
+.chart-marker { position: absolute; pointer-events: none; }
+.chart-graph:not(:hover) > .chart-marker,
+.chart-graph:not(:hover) + .chart-readout,
+.chart-readout:empty { visibility: hidden; }
 .chart-marker {
   inset-block: 0;
   border-left: 1px dashed color-mix(in srgb, var(--accent) 65%, transparent);
@@ -110,21 +112,14 @@ button.chip:not(:disabled):hover { border-color: currentColor; }
   background: var(--accent);
   transform: translate(-50%, -50%);
 }
-.chart-tooltip {
-  top: 0;
-  width: max-content;
-  max-width: 100%;
-  box-sizing: border-box;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: var(--ha-card-background, var(--card-background-color, light-dark(#fff, #1c1c1c)));
-  color: var(--room-text);
-  font-size: .69rem;
+.chart-readout {
+  display: block;
+  min-height: 1.35em;
+  color: var(--room-muted);
+  font-size: .72rem;
   line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transform: translateX(-50%);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 .section-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; }
 .covers, .lights { --accent: var(--room-amber); }

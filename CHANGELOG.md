@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.4]
+
+- Show the selected measurement and its timestamp below the temperature and humidity charts as the pointer moves across the plot, matching the Gas Meter card's readout. Keep the current sensor reading in the chart header.
+
 ## [0.4.3]
 
 - Smoothed the temperature and humidity chart lines and added a subtle fill below them. Current readings now appear on the right in the same row as the chart labels.
